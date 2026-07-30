@@ -25,6 +25,17 @@ public class UpdateAppUserRequest {
     @NotNull(message = "Role is required")
     private String role;
 
+    @NotNull(message = "Enabled status is required")
+    private Boolean enabled;
+
+    public Boolean getEnabled() {
+        return enabled;
+    }
+
+    public void setEnabled(Boolean enabled) {
+        this.enabled = enabled;
+    }
+
     public String getUsername() {
         return username;
     }

@@ -3,6 +3,7 @@ package com.project.ibm.telehealth_with_ai.model;
 import jakarta.persistence.*;
 import org.hibernate.annotations.CreationTimestamp;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -27,10 +28,14 @@ public class Patient {
     @Column(name = "date_of_birth", nullable = false)
     private LocalDate dateOfBirth;
 
+    @OneToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "app_user_id", unique = true)
+    private AppUser appUser;
+
     // Automatically set by Hibernate on insert
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
+    private Instant createdAt;
 
     public Long getPatientId() {
         return patientId;
@@ -72,11 +77,19 @@ public class Patient {
         this.dateOfBirth = dateOfBirth;
     }
 
-    public LocalDateTime getCreatedAt() {
+    public Instant getCreatedAt() {
         return createdAt;
     }
 
-    public void setCreatedAt(LocalDateTime createdAt) {
+    public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public AppUser getAppUser() {
+        return appUser;
+    }
+
+    public void setAppUser(AppUser appUser) {
+        this.appUser = appUser;
     }
 }

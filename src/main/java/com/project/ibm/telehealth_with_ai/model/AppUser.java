@@ -10,6 +10,11 @@ import java.time.Instant;
 @Table(name = "app_user")
 public class AppUser {
 
+
+
+    @Column( name ="enabled",nullable = false)
+    private boolean enabled= true;
+
     public enum Role {
         DOCTOR,
         ADMIN,
@@ -85,4 +90,14 @@ public class AppUser {
     public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
     }
+
+
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
+    }
 }
+

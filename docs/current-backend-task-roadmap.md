@@ -458,42 +458,147 @@ The `StringUtils.hasText` check is important: without it, an empty update field 
 
 ### Phase 2: Repair the Database and Identity Model
 
-**Purpose:** make tables mirror the real-world relationships before exposing consultation data or patient self-service.
+**Purpose:** make the database represent the real telehealth workflow before building Consultation CRUD, patient self-service, or JWT-based ownership checks.
 
-#### Step 2.1: Choose migration tooling
+**Student-project decision:** because the current PostgreSQL data is disposable Docker development data, update `infra/postgres/init/01-schema.sql` and `02-seed-data.sql`, recreate the local database, and document the rebuild command. Do **not** introduce Flyway now unless the marking brief explicitly asks for migration tooling. Flyway is useful, but it adds a second database workflow while the model is still changing.
 
-**Stretch/recommended path:** add Flyway so schema history is versioned alongside Java code.
+#### Step 2.1: Understand the five current database problems
 
-**Where:**
+| Problem | Current state | Why it is a problem | Final decision |
+|---|---|---|---|
+| Doctor columns | SQL uses unquoted `firstName`/`lastName`, which PostgreSQL stores as `firstname`/`lastname` | Hibernate’s usual naming strategy expects `first_name`/`last_name`; this already caused a doctor-read failure | Rename fresh-schema columns and seed data to `first_name` and `last_name` |
+| Profile identity | `AppUser`, `Patient`, and `Doctor` have no links | The backend knows a role but not which patient/doctor profile belongs to that account | Add optional unique `app_user_id` foreign keys to Patient and Doctor |
+| Clinic model | `clinic` contains one `doctor_id` and one `patient_id` | A clinic is not a one-doctor/one-patient relationship; this prevents a clean consultation model | Remove those two columns; consultations connect patient, clinician, and clinic |
+| Consultation clinic ID | `consultation.clinic_id` is `VARCHAR(50)` and seed values are labels such as `CLINIC-SWANSEA-CENTRAL` | No foreign key guarantees a real clinic exists; Java cannot map it as a `Clinic` relationship | Change to `BIGINT NOT NULL REFERENCES clinic(clinic_id)` |
+| Consultation/alert lifecycle | Consultation has ambiguous `time` and no status; Alert has string clinic ID | The frontend cannot reliably show upcoming/completed consultations or filter real clinic alerts | Use `scheduled_at`, add status checks, and link Alert to numeric clinic ID |
 
-```text
-pom.xml
-src/main/resources/db/migration/V1__baseline.sql
-src/main/resources/db/migration/V2__identity_and_consultation_model.sql
-src/main/resources/db/migration/V3__seed_development_data.sql
-```
+#### Step 2.2: Choose the final Phase 2 schema
 
-For the student project, it is acceptable to update the Docker initialization scripts and recreate the disposable local development database. If you do this, write the rebuild steps in the README. Flyway becomes worthwhile only when you need to preserve evolving data across versions.
-
-#### Step 2.2: Add account profile links
-
-**Where:** migration SQL, `model/Patient.java`, `model/Doctor.java`
-
-Example SQL:
+Use this as the target data design. The code is for the **fresh Docker init schema**, not an `ALTER TABLE` script for unknown production data.
 
 ```sql
-ALTER TABLE patient ADD COLUMN app_user_id BIGINT UNIQUE;
-ALTER TABLE patient
-    ADD CONSTRAINT fk_patient_app_user
-    FOREIGN KEY (app_user_id) REFERENCES app_user(user_id);
+CREATE TABLE app_user (
+    user_id BIGSERIAL PRIMARY KEY,
+    username VARCHAR(100) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL,
+    role VARCHAR(30) NOT NULL
+        CHECK (role IN ('DOCTOR', 'ADMIN', 'PATIENT')),
+    email VARCHAR(255) NOT NULL UNIQUE,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
-ALTER TABLE doctor ADD COLUMN app_user_id BIGINT UNIQUE;
-ALTER TABLE doctor
-    ADD CONSTRAINT fk_doctor_app_user
-    FOREIGN KEY (app_user_id) REFERENCES app_user(user_id);
+CREATE TABLE patient (
+    patient_id BIGSERIAL PRIMARY KEY,
+    app_user_id BIGINT UNIQUE REFERENCES app_user(user_id),
+    nhs_number VARCHAR(10) NOT NULL UNIQUE,
+    first_name VARCHAR(100) NOT NULL,
+    last_name VARCHAR(100) NOT NULL,
+    date_of_birth DATE NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE doctor (
+    doctor_id BIGSERIAL PRIMARY KEY,
+    app_user_id BIGINT UNIQUE REFERENCES app_user(user_id),
+    first_name VARCHAR(100) NOT NULL,
+    last_name VARCHAR(100) NOT NULL,
+    specialty VARCHAR(100) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE available_times (
+    doctor_id BIGINT NOT NULL REFERENCES doctor(doctor_id) ON DELETE CASCADE,
+    available_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (doctor_id, available_at)
+);
+
+CREATE TABLE clinic (
+    clinic_id BIGSERIAL PRIMARY KEY,
+    clinic_name VARCHAR(160) NOT NULL,
+    clinic_address VARCHAR(255) NOT NULL
+);
+
+CREATE TABLE consultation (
+    consultation_id BIGSERIAL PRIMARY KEY,
+    patient_id BIGINT NOT NULL REFERENCES patient(patient_id) ON DELETE RESTRICT,
+    clinician_id BIGINT NOT NULL REFERENCES app_user(user_id) ON DELETE RESTRICT,
+    clinic_id BIGINT NOT NULL REFERENCES clinic(clinic_id) ON DELETE RESTRICT,
+    scheduled_at TIMESTAMPTZ NOT NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'SCHEDULED'
+        CHECK (status IN ('SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED')),
+    started_at TIMESTAMPTZ,
+    ended_at TIMESTAMPTZ,
+    transcript TEXT
+);
+
+CREATE TABLE symptom_record (
+    symptom_record_id BIGSERIAL PRIMARY KEY,
+    consultation_id BIGINT NOT NULL
+        REFERENCES consultation(consultation_id) ON DELETE CASCADE,
+    symptoms JSONB NOT NULL DEFAULT '[]'::jsonb,
+    model_name VARCHAR(100) NOT NULL DEFAULT 'seed-data',
+    prompt_version VARCHAR(50) NOT NULL DEFAULT 'seed-v1',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE alert (
+    alert_id BIGSERIAL PRIMARY KEY,
+    clinic_id BIGINT NOT NULL REFERENCES clinic(clinic_id) ON DELETE RESTRICT,
+    symptom_name VARCHAR(100) NOT NULL,
+    window_start TIMESTAMPTZ NOT NULL,
+    window_end TIMESTAMPTZ NOT NULL,
+    observed_count INTEGER NOT NULL,
+    baseline_count NUMERIC(8, 2) NOT NULL,
+    score NUMERIC(8, 2) NOT NULL,
+    threshold NUMERIC(8, 2) NOT NULL,
+    status VARCHAR(30) NOT NULL
+        CHECK (status IN ('OPEN', 'ACKNOWLEDGED', 'DISMISSED', 'RESOLVED')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 ```
 
-Example JPA mapping inside `Patient`:
+**Why these decisions matter:**
+
+- `app_user_id` is nullable because an admin may create a patient/doctor clinical record before that person has a login. `UNIQUE` ensures one account cannot belong to multiple profiles.
+- `enabled` lets an admin stop login access without deleting historical data. This is a small, valuable security feature.
+- snake_case prevents the `firstName`/`firstname` naming mismatch that previously broke the doctor endpoint.
+- `TIMESTAMPTZ` plus Java `Instant` gives one unambiguous point in time for remote consultations. The frontend converts it to the viewer’s local time.
+- `ON DELETE RESTRICT` protects consultation history. If a patient, doctor account, or clinic has consultations, deletion is rejected; use disablement/cancellation instead.
+- `available_at` is a clearer column name than `available_times`, because each collection row contains one time, not a list.
+- The database cannot guarantee `clinician_id` has role `DOCTOR`; `ConsultationService` must validate that business rule.
+
+#### Step 2.3: Update the seed data in dependency order
+
+**Where:** `infra/postgres/init/02-seed-data.sql`
+
+Insert data in this order:
+
+1. `app_user`: one admin, at least two doctors, and at least two patients.
+2. `patient`: assign matching patient account IDs through `app_user_id`.
+3. `doctor`: assign matching doctor account IDs through `app_user_id`.
+4. `clinic`: insert clinics without doctor/patient ownership columns.
+5. `available_times`: use doctor IDs and `available_at`.
+6. `consultation`: use numeric patient, clinician-account, and clinic IDs; supply `scheduled_at` and `status`.
+7. `symptom_record`: insert only after consultations exist.
+8. `alert`: use numeric clinic IDs.
+
+Use explicit development seed IDs only when followed by the existing sequence reset statements. Make the links obvious, for example: patient row 1 uses the `PATIENT` account ID 5; doctor row 1 uses the `DOCTOR` account ID 2.
+
+Seed at least these consultation scenarios:
+
+| Scenario | Status | Why seed it |
+|---|---|---|
+| Future appointment | `SCHEDULED` | doctor/patient upcoming list |
+| Active appointment | `IN_PROGRESS` | call-room/dashboard state |
+| Historical completed appointment with transcript | `COMPLETED` | symptom-extraction demonstration |
+| Cancelled appointment | `CANCELLED` | filter/status demonstration |
+
+#### Step 2.4: Update the JPA entities to match the final schema
+
+**Where:** `model/Patient.java`, `model/Doctor.java`, `model/Clinic.java`, `model/Consultation.java`, and new enum files.
+
+Patient and Doctor each need this account relationship:
 
 ```java
 @OneToOne(fetch = FetchType.LAZY)
@@ -501,42 +606,102 @@ Example JPA mapping inside `Patient`:
 private AppUser appUser;
 ```
 
-`fetch = LAZY` stops a patient query from automatically loading the user object every time. Do not serialize this entity directly; response DTOs prevent accidental password exposure and lazy-loading issues.
+The `Doctor` columns must now be mapped using the normal final names:
 
-#### Step 2.3: Correct clinic and consultation columns
+```java
+@Column(name = "first_name", nullable = false, length = 100)
+private String firstName;
 
-**Where:** migration SQL plus `Consultation`, `Alert`, and their DTOs.
+@Column(name = "last_name", nullable = false, length = 100)
+private String lastName;
+```
 
-Use a real relationship internally:
+Make Clinic independent. It should contain only clinic identity fields; remove direct `Doctor` and `Patient` fields from the entity.
+
+Create `ConsultationStatus`:
+
+```java
+public enum ConsultationStatus {
+    SCHEDULED,
+    IN_PROGRESS,
+    COMPLETED,
+    CANCELLED
+}
+```
+
+Then replace the `String clinicId` and ambiguous `dateTime` fields in Consultation with:
 
 ```java
 @ManyToOne(fetch = FetchType.LAZY, optional = false)
 @JoinColumn(name = "clinic_id", nullable = false)
 private Clinic clinic;
 
-@Enumerated(EnumType.STRING)
-@Column(nullable = false)
-private ConsultationStatus status;
-
 @Column(name = "scheduled_at", nullable = false)
 private Instant scheduledAt;
+
+@Enumerated(EnumType.STRING)
+@Column(name = "status", nullable = false, length = 30)
+private ConsultationStatus status;
 ```
 
-Expose `Long clinicId`, `ConsultationStatus status`, and `Instant scheduledAt` in DTOs. The entity relationship is for JPA; the scalar ID is the API contract.
+Also update the availability collection mapping to use `available_at` and `Instant` if you adopt the schema above. Do not leave a Java `LocalDateTime` mapped to a PostgreSQL `TIMESTAMPTZ` column; use `Instant` for the consistent model.
 
-#### Step 2.4: Backfill and verify data
+#### Step 2.5: Update DTOs without leaking entities
 
-- Seed two linked patients, two linked doctors, and one admin explicitly.
-- Seed future and historical consultations with different statuses.
-- Verify foreign keys by deliberately attempting an invalid clinic/user link in development SQL.
-- Keep `created_at` for audit history; do not overwrite it while backfilling.
+**Where:** `dto/request/` and `dto/response/`.
+
+Rules:
+
+- Requests use `Long clinicId`, `Long patientId`, and `Long clinicianId`, because clients select existing records by ID.
+- Services load those entities and validate role/ownership; controllers never build fake entities from IDs.
+- Responses return scalar IDs and display names, not the nested `AppUser`, `Patient`, or `Doctor` entities.
+- Consultation responses expose `scheduledAt` and `status`.
+- Patient/Doctor responses may expose `appUserId` only when an admin needs to manage the account link. Never expose a password/hash.
+
+#### Step 2.6: Add indexes and verify data integrity
+
+Use these indexes after the tables are correct:
+
+```sql
+CREATE INDEX idx_consultation_patient_scheduled
+    ON consultation(patient_id, scheduled_at DESC);
+
+CREATE INDEX idx_consultation_clinician_scheduled
+    ON consultation(clinician_id, scheduled_at DESC);
+
+CREATE INDEX idx_consultation_clinic_status
+    ON consultation(clinic_id, status);
+
+CREATE INDEX idx_alert_clinic_status
+    ON alert(clinic_id, status);
+```
+
+These match the lists your frontend will use: a patient’s appointments, a doctor’s appointments, clinic/status dashboards, and clinic alerts. Do not add indexes to every field without a query use case.
+
+Verify manually after rebuilding:
+
+1. Create/read a doctor and confirm `first_name`/`last_name` work through JPA.
+2. Confirm patient account ID 5 maps to only patient profile 1.
+3. Attempt to create a second patient using account ID 5; PostgreSQL must reject it.
+4. Attempt a consultation with a non-existent clinic ID; PostgreSQL must reject it.
+5. Attempt to delete a clinic with consultations; PostgreSQL must reject it.
+6. Check that a completed consultation has a transcript and a scheduled future consultation does not need one.
+
+#### Step 2.7: Rebuild the disposable development database
+
+Before rebuilding, stop the application. Rebuild only when the current local data can be discarded. Then start PostgreSQL/Docker again and verify seed data before starting Spring Boot.
+
+Do not edit the database manually and leave `01-schema.sql`/`02-seed-data.sql` behind. The scripts are the source of truth for your student development environment.
 
 #### Phase 2 exit gate
 
-- Fresh migration creates the final schema without manual SQL.
+- Fresh Docker initialization creates the corrected schema and seed data without manual SQL.
+- Doctor fields use one consistent snake_case contract in SQL, JPA, DTOs, and seed data.
 - Every seed patient/doctor requiring login is linked to exactly one matching account.
-- Consultation has `clinic_id BIGINT`, `scheduled_at TIMESTAMPTZ`, and status enum/check constraint.
-- Java compilation and integration tests pass against PostgreSQL, not only an in-memory database.
+- Clinic has no fake single doctor/patient ownership relationship.
+- Consultation has real patient, clinician, and clinic foreign keys, `scheduled_at TIMESTAMPTZ`, and a checked lifecycle status.
+- Alert references the same numeric clinic ID as Consultation.
+- Java compilation and integration tests pass against PostgreSQL.
 
 ---
 

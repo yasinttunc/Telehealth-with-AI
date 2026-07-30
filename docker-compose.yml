@@ -1,6 +1,8 @@
 services:
   postgres:
-    image: postgres:16
+    build:
+      context: ./infra/postgres
+    image: telehealth-ai-postgres:local
     container_name: telehealth-ai-postgres
     restart: unless-stopped
     environment:

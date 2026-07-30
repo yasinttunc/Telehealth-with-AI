@@ -1,0 +1,44 @@
+@import 'tailwindcss';
+
+/*
+  Telehealth With AI — student demo frontend.
+  Visual direction (frontend-spec.md §6): quiet clinical workspace.
+  Light neutral background, muted teal accent, one warm warning colour,
+  red reserved for destructive/error only. 8px max card radius.
+*/
+@theme {
+  --color-accent-50: #f0fdfa;
+  --color-accent-100: #ccfbf1;
+  --color-accent-500: #0d9488;
+  --color-accent-600: #0f766e;
+  --color-accent-700: #115e59;
+
+  --color-warn-100: #fef3c7;
+  --color-warn-600: #d97706;
+  --color-warn-700: #b45309;
+}
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: #f8fafc; /* slate-50 neutral canvas */
+  color: #1e293b; /* slate-800 body text */
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Accessibility: always show a visible keyboard focus ring (spec §6). */
+:focus-visible {
+  outline: 2px solid var(--color-accent-600);
+  outline-offset: 2px;
+}

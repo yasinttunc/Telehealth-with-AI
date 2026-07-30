@@ -10,10 +10,14 @@ import com.project.ibm.telehealth_with_ai.dto.request.UpdateDoctorRequest;
 import com.project.ibm.telehealth_with_ai.dto.response.DoctorResponse;
 
 // Imports the Doctor JPA entity that is saved to/read from the database.
+import com.project.ibm.telehealth_with_ai.exception.BadRequestException;
+import com.project.ibm.telehealth_with_ai.exception.DuplicateResourceException;
 import com.project.ibm.telehealth_with_ai.exception.ResourceNotFoundException;
+import com.project.ibm.telehealth_with_ai.model.AppUser;
 import com.project.ibm.telehealth_with_ai.model.Doctor;
 
 // Imports the repository that handles database operations for Doctor.
+import com.project.ibm.telehealth_with_ai.repository.AppUserRepository;
 import com.project.ibm.telehealth_with_ai.repository.DoctorRepository;
 
 // Marks this class as a Spring service bean.
@@ -31,13 +35,20 @@ import java.util.List;
 public class DoctorService {
 
     private final DoctorRepository doctorRepository;
+    private final AppUserRepository appUserRepository;
 
-    public DoctorService(DoctorRepository doctorRepository) {
+    public DoctorService(DoctorRepository doctorRepository, AppUserRepository appUserRepository) {
         this.doctorRepository = doctorRepository;
+        this.appUserRepository = appUserRepository;
     }
 
     private DoctorResponse toResponse(Doctor doctor) {
         DoctorResponse response = new DoctorResponse();
+        response.setAppUserId(
+                doctor.getAppUser() == null
+                        ? null
+                        : doctor.getAppUser().getUserId()
+        );
         response.setDoctorId(doctor.getDoctorId());
         response.setFirstName(doctor.getFirstName());
         response.setLastName(doctor.getLastName());
@@ -50,7 +61,16 @@ public class DoctorService {
     }
 
     public DoctorResponse createDoctor(CreateDoctorRequest request) {
+        AppUser appUser = appUserRepository.findById(request.getAppUserId())
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+        if (appUser.getRole() != AppUser.Role.DOCTOR) {
+            throw new BadRequestException("Selected user must have the DOCTOR role");
+        }
+        if (doctorRepository.existsByAppUserUserId(appUser.getUserId())) {
+            throw new DuplicateResourceException("This user already has a doctor profile");
+        }
         Doctor doctor = new Doctor();
+        doctor.setAppUser(appUser);
         doctor.setFirstName(request.getFirstName());
         doctor.setLastName(request.getLastName());
         doctor.setSpecialty(request.getSpecialty());

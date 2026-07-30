@@ -12,6 +12,7 @@ public class AppUserResponse {
     private String email;
     private String role;
     private Instant createdAt;
+    private boolean enabled;
 
     public Long getUserId() {
         return userId;
@@ -51,5 +52,13 @@ public class AppUserResponse {
 
     public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    public void setEnabled(boolean enabled) {
+        this.enabled = enabled;
     }
 }

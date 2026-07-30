@@ -22,11 +22,16 @@ public class Consultation {
     @JoinColumn(name = "clinician_id", nullable = false)
     private AppUser clinician;
 
-    @Column(name = "clinic_id")
-    private String clinicId;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "clinic_id", nullable = false)
+    private Clinic clinic;
 
-    @Column(name= "time", nullable = false)
-    private LocalDateTime dateTime;
+    @Column(name="scheduled_at", nullable = false)
+    private Instant scheduledAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name="status", nullable = false, length = 30)
+    private ConsultationStatus status;
 
     @Column(name = "started_at")
     private Instant startedAt;
@@ -61,12 +66,28 @@ public class Consultation {
         this.clinician = clinician;
     }
 
-    public String getClinicId() {
-        return clinicId;
+    public Clinic getClinic() {
+        return clinic;
     }
 
-    public void setClinicId(String clinicId) {
-        this.clinicId = clinicId;
+    public void setClinic(Clinic clinic) {
+        this.clinic = clinic;
+    }
+
+    public Instant getScheduledAt() {
+        return scheduledAt;
+    }
+
+    public void setScheduledAt(Instant scheduledAt) {
+        this.scheduledAt = scheduledAt;
+    }
+
+    public ConsultationStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(ConsultationStatus status) {
+        this.status = status;
     }
 
     public Instant getStartedAt() {

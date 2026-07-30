@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import jakarta.validation.Valid;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -26,8 +27,7 @@ public class UpdateDoctorRequest {
     private String specialty;
 
     @Valid
-    private List<@Future(message = "Available times must be in the future") LocalDateTime> availableTimes;
-
+    private List<@Future(message = "Available times must be in the future") Instant> availableTimes;
     public String getFirstName() {
         return firstName;
     }
@@ -51,10 +51,12 @@ public class UpdateDoctorRequest {
     public void setSpecialty(String specialty) {
         this.specialty = specialty;
     }
-    public List<LocalDateTime> getAvailableTimes() {
+
+    public List<Instant> getAvailableTimes() {
         return availableTimes;
     }
-    public void setAvailableTimes(List<LocalDateTime> availableTimes) {
+
+    public void setAvailableTimes(List<Instant> availableTimes) {
         this.availableTimes = availableTimes;
     }
 }

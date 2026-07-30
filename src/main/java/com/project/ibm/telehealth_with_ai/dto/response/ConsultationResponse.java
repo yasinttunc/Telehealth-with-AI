@@ -1,7 +1,7 @@
 package com.project.ibm.telehealth_with_ai.dto.response;
 
+import com.project.ibm.telehealth_with_ai.model.ConsultationStatus;
 import java.time.Instant;
-import java.time.LocalDateTime;
 
 /**
  * Returns consultation data, including transcript state and linked patient/clinician identifiers.
@@ -13,8 +13,10 @@ public class ConsultationResponse {
     private String patientName;
     private Long clinicianId;
     private String clinicianUsername;
-    private String clinicId;
-    private LocalDateTime dateTime;
+    private Long clinicId;
+    private String clinicName;
+    private Instant scheduledAt;
+    private ConsultationStatus status;
     private Instant startedAt;
     private Instant endedAt;
     private String transcript;
@@ -59,20 +61,36 @@ public class ConsultationResponse {
         this.clinicianUsername = clinicianUsername;
     }
 
-    public String getClinicId() {
+    public Long getClinicId() {
         return clinicId;
     }
 
-    public void setClinicId(String clinicId) {
+    public void setClinicId(Long clinicId) {
         this.clinicId = clinicId;
     }
 
-    public LocalDateTime getDateTime() {
-        return dateTime;
+    public String getClinicName() {
+        return clinicName;
     }
 
-    public void setDateTime(LocalDateTime dateTime) {
-        this.dateTime = dateTime;
+    public void setClinicName(String clinicName) {
+        this.clinicName = clinicName;
+    }
+
+    public Instant getScheduledAt() {
+        return scheduledAt;
+    }
+
+    public void setScheduledAt(Instant scheduledAt) {
+        this.scheduledAt = scheduledAt;
+    }
+
+    public ConsultationStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(ConsultationStatus status) {
+        this.status = status;
     }
 
     public Instant getStartedAt() {

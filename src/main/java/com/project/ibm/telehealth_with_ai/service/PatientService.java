@@ -3,9 +3,12 @@ package com.project.ibm.telehealth_with_ai.service;
 import com.project.ibm.telehealth_with_ai.dto.request.CreatePatientRequest;
 import com.project.ibm.telehealth_with_ai.dto.request.UpdatePatientRequest;
 import com.project.ibm.telehealth_with_ai.dto.response.PatientResponse;
+import com.project.ibm.telehealth_with_ai.exception.BadRequestException;
 import com.project.ibm.telehealth_with_ai.exception.DuplicateResourceException;
 import com.project.ibm.telehealth_with_ai.exception.ResourceNotFoundException;
+import com.project.ibm.telehealth_with_ai.model.AppUser;
 import com.project.ibm.telehealth_with_ai.model.Patient;
+import com.project.ibm.telehealth_with_ai.repository.AppUserRepository;
 import com.project.ibm.telehealth_with_ai.repository.PatientRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,9 +20,10 @@ import java.util.List;
 public class PatientService {
 
     private final PatientRepository patientRepository;
-
-    public PatientService(PatientRepository patientRepository) {
+    private final AppUserRepository appUserRepository;
+    public PatientService(PatientRepository patientRepository,AppUserRepository appUserRepository) {
         this.patientRepository = patientRepository;
+        this.appUserRepository = appUserRepository;
     }
 
     public PatientResponse createPatient(CreatePatientRequest request) {
@@ -28,6 +32,18 @@ public class PatientService {
         }
 
         Patient patient = new Patient();
+        AppUser appUser = appUserRepository.findById(request.getAppUserId())
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        if (appUser.getRole() != AppUser.Role.PATIENT) {
+            throw new BadRequestException("Selected user must have the PATIENT role");
+        }
+
+        if (patientRepository.existsByAppUserUserId(appUser.getUserId())) {
+            throw new DuplicateResourceException("This user already has a patient profile");
+        }
+
+        patient.setAppUser(appUser);
         patient.setNhsNumber(request.getNhsNumber());
         patient.setFirstName(request.getFirstName());
         patient.setLastName(request.getLastName());
@@ -99,6 +115,11 @@ public class PatientService {
         response.setLastName(patient.getLastName());
         response.setDateOfBirth(patient.getDateOfBirth());
         response.setCreatedAt(patient.getCreatedAt());
+        response.setAppUserId(
+                patient.getAppUser() == null
+                        ? null
+                        : patient.getAppUser().getUserId()
+        );
         return response;
     }
 }

@@ -1,5 +1,7 @@
 # CRUD, Authentication, and RBAC Improvement Guide
 
+> **Use the integrated guide first:** `docs/crud-rbac-integrated-guide.md` keeps each task definition, code example, explanation, and verification step together. This longer document remains as reference material.
+
 ## Purpose of This Guide
 
 This document is a teaching roadmap for improving the current Telehealth With AI backend. It is based on the current source code and database schema, not on a generic Spring Boot template.
@@ -953,6 +955,446 @@ It is good to name these in your final report, but do not let them block submiss
 - comprehensive automated integration testing with disposable containers.
 
 The strongest student project is not the one with the longest future-work list. It is the one where the implemented clinical workflow is complete, protected by clear roles and ownership checks, and easy to demonstrate.
+
+---
+
+# Task-by-Task Implementation Workbook
+
+This section fixes a weakness in the first version of the guide: the roadmap explained the tasks, but the code examples were separated into the appendix. Use this workbook while implementing. Every major task has the same learning pattern:
+
+1. **Where** you make the change.
+2. **Code** you write.
+3. **Why** each part exists.
+4. **Proof** that the task is complete.
+
+## Workbook Task 1: Make Existing CRUD Return Correct Statuses
+
+**Where:** `controller/PatientController.java`, `DoctorController.java`, and `AppUserController.java`.
+
+For create operations, return `201 Created` instead of Spring's default `200 OK`:
+
+```java
+@PostMapping
+public ResponseEntity<PatientResponse> createPatient(
+        @Valid @RequestBody CreatePatientRequest request
+) {
+    PatientResponse response = patientService.createPatient(request);
+    return ResponseEntity.status(HttpStatus.CREATED).body(response);
+}
+```
+
+For delete operations, return `204 No Content`:
+
+```java
+@DeleteMapping("/{id}")
+@ResponseStatus(HttpStatus.NO_CONTENT)
+public void deletePatient(@PathVariable Long id) {
+    patientService.deletePatient(id);
+}
+```
+
+**Teaching:** `ResponseEntity` gives the controller control over both HTTP status and response body. `201` tells the frontend a resource was created. `204` tells it deletion succeeded and there is intentionally no JSON body to parse.
+
+**Proof:** create a patient and check for `201`; delete it and check for `204`; requesting the deleted ID must return `404`.
+
+## Workbook Task 2: Add Domain Validation, Not Just Field Validation
+
+**Where:** `service/PatientService.java`.
+
+Add a focused helper that validates an NHS number before saving:
+
+```java
+private void validateNhsNumber(String nhsNumber) {
+    if (nhsNumber == null || !nhsNumber.matches("\\d{10}")) {
+        throw new BadRequestException("NHS number must contain exactly 10 digits");
+    }
+}
+```
+
+Call it at the beginning of both create and update methods:
+
+```java
+validateNhsNumber(request.getNhsNumber());
+```
+
+**Teaching:** `@NotBlank` only rejects null/empty/whitespace input. It cannot express every business rule. This helper validates a domain rule: an NHS number must be ten digits. Throwing `BadRequestException` lets your existing global exception handler produce a controlled `400` response.
+
+**Proof:** send `123`, `ABC1234567`, and a valid 10-digit value. The first two must produce `400`; the valid one should continue to normal duplicate checks/save logic.
+
+## Workbook Task 3: Separate Account Details From Password Changes
+
+**Where:** create two request DTOs under `dto/request/`.
+
+```java
+public class UpdateAppUserDetailsRequest {
+    @NotBlank
+    @Size(min = 3, max = 50)
+    private String username;
+
+    @NotBlank
+    @Email
+    private String email;
+
+    @NotNull
+    private String role;
+
+    // getters and setters
+}
+```
+
+```java
+public class ResetPasswordRequest {
+    @NotBlank
+    @Size(min = 8, max = 100)
+    private String newPassword;
+
+    // getter and setter
+}
+```
+
+The account-details service method must not touch the password:
+
+```java
+user.setUsername(request.getUsername());
+user.setEmail(request.getEmail());
+user.setRole(parseRole(request.getRole()));
+```
+
+The password-reset method changes only the password hash:
+
+```java
+user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+```
+
+**Teaching:** a password is a credential, not a normal profile field. This separation stops a role/email edit from overwriting someone’s password. The raw password is always encoded once, immediately before persistence; never store it or return it in a response.
+
+**Proof:** update an email, then log in using the old password. Reset the password, then confirm old login fails and new login succeeds.
+
+## Workbook Task 4: Link a Patient Profile to a Login Account
+
+**Where:** `infra/postgres/init/01-schema.sql` and `model/Patient.java`.
+
+```sql
+app_user_id BIGINT UNIQUE REFERENCES app_user(user_id)
+```
+
+```java
+@OneToOne(fetch = FetchType.LAZY)
+@JoinColumn(name = "app_user_id", unique = true)
+private AppUser appUser;
+
+public AppUser getAppUser() {
+    return appUser;
+}
+
+public void setAppUser(AppUser appUser) {
+    this.appUser = appUser;
+}
+```
+
+Before assigning the link in `PatientService`, validate the account role:
+
+```java
+if (user.getRole() != AppUser.Role.PATIENT) {
+    throw new BadRequestException("Only a PATIENT account can be linked to a patient profile");
+}
+```
+
+**Teaching:** the SQL foreign key proves the account exists. `UNIQUE` proves an account cannot be attached to two patients. The Java service role check proves an admin account cannot accidentally become a patient profile. These are three different protections working together.
+
+**Proof:** link a PATIENT account successfully. Try linking a DOCTOR account or reusing the same patient account for a second profile; both must fail.
+
+## Workbook Task 5: Link a Doctor Profile to a Login Account
+
+**Where:** `model/Doctor.java` and the doctor table in `01-schema.sql`.
+
+```java
+@OneToOne(fetch = FetchType.LAZY)
+@JoinColumn(name = "app_user_id", unique = true)
+private AppUser appUser;
+```
+
+The service role check is the doctor equivalent:
+
+```java
+if (user.getRole() != AppUser.Role.DOCTOR) {
+    throw new BadRequestException("Only a DOCTOR account can be linked to a doctor profile");
+}
+```
+
+**Teaching:** this is what lets a logged-in doctor later access their own availability and assigned consultations. A role alone is broad permission; this link gives the backend a specific profile identity.
+
+**Proof:** after login as Dr Sarah’s account, the system can resolve Sarah’s doctor profile without receiving a doctor ID from the frontend.
+
+## Workbook Task 6: Repair Clinic and Consultation Database Relationships
+
+**Where:** `01-schema.sql`, `model/Clinic.java`, and `model/Consultation.java`.
+
+Clinic should not contain a single doctor and patient. Keep it focused:
+
+```java
+@Entity
+@Table(name = "clinic")
+public class Clinic {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "clinic_id")
+    private Long clinicId;
+
+    @Column(name = "clinic_name", nullable = false)
+    private String clinicName;
+
+    @Column(name = "clinic_address", nullable = false)
+    private String clinicAddress;
+
+    // getters and setters
+}
+```
+
+Consultation owns the real connection:
+
+```java
+@ManyToOne(fetch = FetchType.LAZY, optional = false)
+@JoinColumn(name = "clinic_id", nullable = false)
+private Clinic clinic;
+```
+
+```sql
+clinic_id BIGINT NOT NULL REFERENCES clinic(clinic_id) ON DELETE RESTRICT
+```
+
+**Teaching:** a clinic may have many doctors, patients, and consultations. The consultation is the event that says which patient saw which clinician at which clinic. `RESTRICT` prevents a clinic with medical history from being deleted.
+
+**Proof:** attempt to create a consultation with a non-existent clinic ID. The service should first return a useful `404`; the database foreign key remains the final safety net.
+
+## Workbook Task 7: Add Consultation Status and Correct Time Handling
+
+**Where:** new `model/ConsultationStatus.java`, `model/Consultation.java`, schema, DTOs.
+
+```java
+public enum ConsultationStatus {
+    SCHEDULED,
+    IN_PROGRESS,
+    COMPLETED,
+    CANCELLED
+}
+```
+
+```java
+@Column(name = "scheduled_at", nullable = false)
+private Instant scheduledAt;
+
+@Enumerated(EnumType.STRING)
+@Column(name = "status", nullable = false, length = 30)
+private ConsultationStatus status;
+```
+
+```sql
+scheduled_at TIMESTAMPTZ NOT NULL,
+status VARCHAR(30) NOT NULL DEFAULT 'SCHEDULED'
+    CHECK (status IN ('SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'))
+```
+
+**Teaching:** `Instant` is one absolute moment, which is better for a remote telehealth appointment than a timezone-free `LocalDateTime`. `EnumType.STRING` stores readable text like `COMPLETED`, rather than a fragile ordinal number such as `2`.
+
+**Proof:** seed one consultation for each status. The frontend should be able to filter upcoming, active, completed, and cancelled appointments.
+
+## Workbook Task 8: Build the Clinic CRUD Layer
+
+**Where:** add `repository/ClinicRepository.java`, `service/ClinicService.java`, and `controller/ClinicController.java`.
+
+```java
+public interface ClinicRepository extends JpaRepository<Clinic, Long> {
+}
+```
+
+The essential not-found pattern in the service is:
+
+```java
+private Clinic findClinic(Long id) {
+    return clinicRepository.findById(id)
+            .orElseThrow(() -> new ResourceNotFoundException("Clinic not found"));
+}
+```
+
+The admin-only create controller route is:
+
+```java
+@PostMapping
+@PreAuthorize("hasRole('ADMIN')")
+public ResponseEntity<ClinicResponse> create(
+        @Valid @RequestBody CreateClinicRequest request
+) {
+    return ResponseEntity.status(HttpStatus.CREATED)
+            .body(clinicService.createClinic(request));
+}
+```
+
+**Teaching:** `JpaRepository` supplies basic persistence. The service provides meaningful errors and mapping. The controller applies the HTTP/RBAC boundary. Keeping those roles separate is the basic Spring layered architecture you should explain in your report.
+
+**Proof:** admin receives `201` when creating a clinic; doctor can read it; patient receives `403` if you keep clinic data staff-only.
+
+## Workbook Task 9: Create a Consultation Safely
+
+**Where:** `service/ConsultationService.java`.
+
+```java
+public ConsultationResponse createConsultation(CreateConsultationRequest request) {
+    Patient patient = patientRepository.findById(request.getPatientId())
+            .orElseThrow(() -> new ResourceNotFoundException("Patient not found"));
+
+    AppUser clinician = appUserRepository.findById(request.getClinicianId())
+            .orElseThrow(() -> new ResourceNotFoundException("Clinician not found"));
+
+    if (clinician.getRole() != AppUser.Role.DOCTOR) {
+        throw new BadRequestException("Clinician must have the DOCTOR role");
+    }
+
+    Clinic clinic = clinicRepository.findById(request.getClinicId())
+            .orElseThrow(() -> new ResourceNotFoundException("Clinic not found"));
+
+    Consultation consultation = new Consultation();
+    consultation.setPatient(patient);
+    consultation.setClinician(clinician);
+    consultation.setClinic(clinic);
+    consultation.setScheduledAt(request.getScheduledAt());
+    consultation.setStatus(ConsultationStatus.SCHEDULED);
+
+    return toResponse(consultationRepository.save(consultation));
+}
+```
+
+**Teaching:** the request sends IDs, but the service loads real entities. That gives clear `404` errors and prevents invalid foreign keys. The service, not the browser, chooses the initial status. A user cannot create a fake completed appointment by sending `COMPLETED` in the request.
+
+**Proof:** test missing patient, missing clinic, a clinician ID that belongs to a PATIENT account, and a valid doctor account.
+
+## Workbook Task 10: Implement Ownership Checks
+
+**Where:** `service/ConsultationService.java`.
+
+```java
+private void assertCanRead(Consultation consultation, AppUser currentUser) {
+    if (currentUser.getRole() == AppUser.Role.ADMIN) {
+        return;
+    }
+
+    if (currentUser.getRole() == AppUser.Role.DOCTOR
+            && consultation.getClinician().getUserId().equals(currentUser.getUserId())) {
+        return;
+    }
+
+    if (currentUser.getRole() == AppUser.Role.PATIENT
+            && consultation.getPatient().getAppUser() != null
+            && consultation.getPatient().getAppUser().getUserId()
+                    .equals(currentUser.getUserId())) {
+        return;
+    }
+
+    throw new AccessDeniedException("You are not allowed to access this consultation");
+}
+```
+
+**Teaching:** `@PreAuthorize("hasRole('PATIENT')")` only says a patient can use an endpoint type. This guard answers whether this particular patient owns this particular consultation. Compare database IDs, not Java object references.
+
+**Proof:** seed two patients and two doctors. Patient A must receive `403` for Patient B’s consultation; Doctor A must receive `403` when editing Doctor B’s consultation.
+
+## Workbook Task 11: Add the “My Consultations” Workflow
+
+**Where:** `controller/ConsultationController.java` and `ConsultationService.java`.
+
+```java
+@GetMapping("/mine")
+@PreAuthorize("hasAnyRole('DOCTOR', 'PATIENT')")
+public List<ConsultationResponse> getMine() {
+    return consultationService.getMyConsultations();
+}
+```
+
+The service determines the target profile from the authenticated account. It must not accept a user-selected `patientId` in this route.
+
+```java
+if (currentUser.getRole() == AppUser.Role.PATIENT) {
+    return consultationRepository
+            .findByPatientAppUserUserIdOrderByScheduledAtDesc(currentUser.getUserId())
+            .stream().map(this::toResponse).toList();
+}
+```
+
+**Teaching:** `/mine` is safer because the browser cannot change an ID to browse another person’s appointments. The server derives identity from authenticated login data.
+
+## Workbook Task 12: Build JWT Login Before Frontend Integration
+
+**Where:** new `controller/AuthController.java`, `service/AuthService.java`, `security/JwtService.java`, and `security/JwtAuthenticationFilter.java`.
+
+The controller stays small:
+
+```java
+@PostMapping("/login")
+public AuthResponse login(@Valid @RequestBody LoginRequest request) {
+    return authService.login(request);
+}
+
+@GetMapping("/me")
+public CurrentUserResponse me() {
+    return authService.getCurrentUser();
+}
+```
+
+The login service delegates password checking to Spring Security:
+
+```java
+Authentication authentication = authenticationManager.authenticate(
+        new UsernamePasswordAuthenticationToken(
+                request.getUsernameOrEmail(),
+                request.getPassword()
+        )
+);
+```
+
+**Teaching:** `AuthenticationManager` uses your `DatabaseUserDetailsService` and BCrypt password encoder. Never query the password hash and compare strings manually. On success, generate a signed token containing only non-sensitive identity claims: user ID, username, role, issued time, and expiry.
+
+**Proof:** valid credentials return an access token; invalid username and invalid password return the same generic `401`; calling `/api/auth/me` with a valid token returns role/profile identity.
+
+## Workbook Task 13: Add Symptom Records and Alerts Only After Consultations Work
+
+**Where:** `model/SymptomRecord.java`, `repository/SymptomRecordRepository.java`, `service/SymptomRecordService.java`; repeat the same structure for Alert.
+
+The symptom record must belong to a consultation:
+
+```java
+@ManyToOne(fetch = FetchType.LAZY, optional = false)
+@JoinColumn(name = "consultation_id", nullable = false)
+private Consultation consultation;
+```
+
+The alert must belong to a clinic:
+
+```java
+@ManyToOne(fetch = FetchType.LAZY, optional = false)
+@JoinColumn(name = "clinic_id", nullable = false)
+private Clinic clinic;
+```
+
+**Teaching:** these relationships let you reuse the same consultation ownership guard for symptom records and the same clinic filter for alerts. Do not let AI data become an unconnected collection of rows.
+
+**Proof:** an assigned doctor can view symptoms for their consultation; a different doctor cannot; an admin can acknowledge an open alert; a patient cannot access alerts.
+
+## Workbook Task 14: Write a Focused Ownership Test
+
+**Where:** `src/test/java/.../controller/ConsultationControllerIntegrationTest.java`.
+
+```java
+@Test
+void patientCannotReadAnotherPatientsConsultation() throws Exception {
+    mockMvc.perform(get("/api/consultations/{id}", consultationForPatientB)
+                    .with(user("patient-a").roles("PATIENT")))
+            .andExpect(status().isForbidden());
+}
+```
+
+**Teaching:** this test checks the real security requirement, not merely whether an endpoint exists. A passing test proves that a role-valid user is still blocked when they do not own the record.
+
+**Proof:** add equivalent tests for doctor-to-doctor access and admin access. Keep these tests when you change authentication from Basic Auth to JWT; the transport changes, but the authorization rule must remain true.
 
 ---
 

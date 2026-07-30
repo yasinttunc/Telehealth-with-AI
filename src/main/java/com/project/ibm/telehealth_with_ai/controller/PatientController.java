@@ -5,6 +5,8 @@ import com.project.ibm.telehealth_with_ai.dto.request.UpdatePatientRequest;
 import com.project.ibm.telehealth_with_ai.dto.response.PatientResponse;
 import com.project.ibm.telehealth_with_ai.service.PatientService;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -22,8 +24,9 @@ public class PatientController {
 
     @PreAuthorize("hasAnyRole('ADMIN', 'DOCTOR')")
     @PostMapping
-    public PatientResponse createPatient(@Valid @RequestBody CreatePatientRequest request) {
-        return patientService.createPatient(request);
+    public ResponseEntity<PatientResponse> createPatient(@Valid @RequestBody CreatePatientRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(patientService.createPatient(request));
     }
 
     @PreAuthorize("hasAnyRole('ADMIN', 'DOCTOR')")
@@ -45,8 +48,9 @@ public class PatientController {
     }
     @PreAuthorize("hasAnyRole('ADMIN')")
     @DeleteMapping("/{id}")
-    public void deletePatient(@PathVariable Long id){
+    public ResponseEntity<Void> deletePatient(@PathVariable Long id){
         patientService.deletePatient(id);
+        return ResponseEntity.noContent().build();
     }
 
     @PreAuthorize("hasAnyRole('ADMIN', 'DOCTOR')")

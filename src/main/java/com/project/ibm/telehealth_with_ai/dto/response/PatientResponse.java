@@ -1,5 +1,6 @@
 package com.project.ibm.telehealth_with_ai.dto.response;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -13,8 +14,16 @@ public class PatientResponse {
     private String firstName;
     private String lastName;
     private LocalDate dateOfBirth;
-    private LocalDateTime createdAt;
+    private Instant createdAt;
+    private Long appUserId;
 
+    public Long getAppUserId() {
+        return appUserId;
+    }
+
+    public void setAppUserId(Long appUserId) {
+        this.appUserId = appUserId;
+    }
     public Long getPatientId() {
         return patientId;
     }
@@ -55,11 +64,11 @@ public class PatientResponse {
         this.dateOfBirth = dateOfBirth;
     }
 
-    public LocalDateTime getCreatedAt() {
+    public Instant getCreatedAt() {
         return createdAt;
     }
 
-    public void setCreatedAt(LocalDateTime createdAt) {
+    public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
     }
 }

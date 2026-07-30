@@ -28,10 +28,12 @@ public class DatabaseUserDetailsService implements UserDetailsService {
             throw new UsernameNotFoundException("User not found: " + username);
         }
 
-        return new User(
-                appUser.getUsername(),
-                appUser.getPassword(),
-                List.of(new SimpleGrantedAuthority("ROLE_" + appUser.getRole().name()))
-        );
+        return User.withUsername(appUser.getUsername())
+                .password(appUser.getPassword())
+                .authorities(List.of(new SimpleGrantedAuthority(
+                        "ROLE_" + appUser.getRole().name())))
+                .disabled(!appUser.isEnabled())
+                .build();
+
     }
 }

@@ -1,8 +1,10 @@
 package com.project.ibm.telehealth_with_ai.dto.request;
 
+import com.project.ibm.telehealth_with_ai.model.ConsultationStatus;
+import jakarta.validation.constraints.Future;
 import jakarta.validation.constraints.NotNull;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 
 /**
  * Carries the IDs and timing needed to create a telehealth consultation.
@@ -15,10 +17,15 @@ public class CreateConsultationRequest {
     @NotNull(message = "Clinician user ID is required")
     private Long clinicianId;
 
-    private String clinicId;
+    @NotNull(message = "Clinic ID is required")
+    private Long clinicId;
 
-    @NotNull(message = "Consultation time is required")
-    private LocalDateTime dateTime;
+    @NotNull(message = "Scheduled time is required")
+    @Future(message = "Scheduled time must be in the future")
+    private Instant scheduledAt;
+
+    @NotNull(message = "Status is required")
+    private ConsultationStatus status;
 
     public Long getPatientId() {
         return patientId;
@@ -36,19 +43,27 @@ public class CreateConsultationRequest {
         this.clinicianId = clinicianId;
     }
 
-    public String getClinicId() {
+    public Long getClinicId() {
         return clinicId;
     }
 
-    public void setClinicId(String clinicId) {
+    public void setClinicId(Long clinicId) {
         this.clinicId = clinicId;
     }
 
-    public LocalDateTime getDateTime() {
-        return dateTime;
+    public Instant getScheduledAt() {
+        return scheduledAt;
     }
 
-    public void setDateTime(LocalDateTime dateTime) {
-        this.dateTime = dateTime;
+    public void setScheduledAt(Instant scheduledAt) {
+        this.scheduledAt = scheduledAt;
+    }
+
+    public ConsultationStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(ConsultationStatus status) {
+        this.status = status;
     }
 }

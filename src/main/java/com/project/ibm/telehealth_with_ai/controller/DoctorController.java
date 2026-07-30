@@ -9,6 +9,8 @@ import com.project.ibm.telehealth_with_ai.service.DoctorService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -28,10 +30,10 @@ public class DoctorController {
 
     @PreAuthorize("hasRole('ADMIN')")
     @PostMapping
-    public DoctorResponse createDoctor(
+    public ResponseEntity<DoctorResponse> createDoctor(
             @Valid @RequestBody CreateDoctorRequest request
     ){
-        return doctorService.createDoctor(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(doctorService.createDoctor(request));
     }
 
     @PreAuthorize("hasAnyRole('ADMIN', 'DOCTOR','PATIENT')")
@@ -63,8 +65,9 @@ public class DoctorController {
 
     @PreAuthorize("hasAnyRole('ADMIN')")
     @DeleteMapping("/{id}")
-    public void deleteDoctor(@PathVariable Long id){
+    public ResponseEntity<Void> deleteDoctor(@PathVariable Long id){
         doctorService.deleteDoctor(id);
+        return ResponseEntity.noContent().build();
     }
 
 

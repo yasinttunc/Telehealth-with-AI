@@ -9,7 +9,7 @@ public interface PatientRepository extends JpaRepository<Patient, Long> {
     Patient findByPatientId(Long patientId);
     Patient findByNhsNumber(String nhsNumber);
     boolean existsByNhsNumber(String nhsNumber);
-
+    boolean existsByAppUserUserId(Long userId);
     List<Patient> findAll();
 
 }

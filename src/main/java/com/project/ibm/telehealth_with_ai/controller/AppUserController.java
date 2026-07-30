@@ -1,10 +1,13 @@
 package com.project.ibm.telehealth_with_ai.controller;
 
 import com.project.ibm.telehealth_with_ai.dto.request.RegisterRequest;
+import com.project.ibm.telehealth_with_ai.dto.request.ResetPasswordRequest;
 import com.project.ibm.telehealth_with_ai.dto.request.UpdateAppUserRequest;
 import com.project.ibm.telehealth_with_ai.dto.response.AppUserResponse;
 import com.project.ibm.telehealth_with_ai.service.AppUserService;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -22,14 +25,19 @@ public class AppUserController {
 
     @PreAuthorize("hasRole('ADMIN')")
     @PostMapping
-    public AppUserResponse createUser(@Valid @RequestBody RegisterRequest request) {
-        return appUserService.createUser(request);
+    public ResponseEntity<AppUserResponse> createUser(@Valid @RequestBody RegisterRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(appUserService.createUser(request));
     }
 
     @PreAuthorize("hasRole('ADMIN')")
     @PutMapping("/{id}")
     public AppUserResponse updateUser(@PathVariable Long id, @Valid @RequestBody UpdateAppUserRequest request) {
         return appUserService.updateUser(id, request);
+    }
+    @PreAuthorize("hasRole('ADMIN')")
+    @PutMapping("/{id}/password")
+    public AppUserResponse updatePassword(@PathVariable Long id, @Valid @RequestBody ResetPasswordRequest request){
+        return appUserService.updatePassword(id, request.getNewPassword());
     }
 
     @GetMapping("/{id}")
@@ -57,7 +65,8 @@ public class AppUserController {
 
     @PreAuthorize("hasRole('ADMIN')")
     @DeleteMapping("/{id}")
-    public void deleteUser(@PathVariable Long id) {
+    public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
         appUserService.deleteUser(id);
+        return ResponseEntity.noContent().build();
     }
 }

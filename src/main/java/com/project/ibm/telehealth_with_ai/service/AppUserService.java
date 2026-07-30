@@ -35,6 +35,7 @@ public class AppUserService {
         response.setRole(appUser.getRole().name());
         response.setCreatedAt(appUser.getCreatedAt());
         response.setUsername(appUser.getUsername());
+        response.setEnabled(appUser.isEnabled());
         return response;
     }
 
@@ -46,8 +47,10 @@ public class AppUserService {
         if(appUserRepository.findByEmail(request.getEmail())!=null){
             throw new DuplicateResourceException("Email already exists");
         }
+
         AppUser.Role role = parseRole(request.getRole());
         AppUser user = new AppUser();
+
 
         user.setUsername(request.getUsername());
         user.setEmail(request.getEmail());
@@ -94,11 +97,19 @@ public class AppUserService {
         else {
             user.setUsername(request.getUsername());
             user.setEmail(request.getEmail());
-            user.setPassword(passwordEncoder.encode(request.getPassword()));
             user.setRole(parseRole(request.getRole()));
+            user.setEnabled(request.getEnabled());
             AppUser saved = appUserRepository.save(user);
             return toResponse(saved);
         }
+    }
+
+    public AppUserResponse updatePassword(Long id, String newPassword) {
+        AppUser user = appUserRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+        user.setPassword(passwordEncoder.encode(newPassword));
+        AppUser saved = appUserRepository.save(user);
+        return toResponse(saved);
     }
     // Deletes user by ID.
     public void deleteUser(Long id) {

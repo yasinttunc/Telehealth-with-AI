@@ -27,7 +27,14 @@ public class CreatePatientRequest {
     @NotNull(message = "Date of birth is required")
     @Past(message = "Date of birth must be in the past")
     private LocalDate dateOfBirth;
-
+    @NotNull(message = "App user ID is required")
+    private Long appUserId;
+    public Long getAppUserId() {
+        return appUserId;
+    }
+    public void setAppUserId(Long appUserId) {
+        this.appUserId = appUserId;
+    }
     public String getNhsNumber() {
         return nhsNumber;
     }
