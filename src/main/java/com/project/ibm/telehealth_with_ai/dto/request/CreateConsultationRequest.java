@@ -1,13 +1,13 @@
 package com.project.ibm.telehealth_with_ai.dto.request;
 
-import com.project.ibm.telehealth_with_ai.model.ConsultationStatus;
 import jakarta.validation.constraints.Future;
 import jakarta.validation.constraints.NotNull;
 
 import java.time.Instant;
 
 /**
- * Carries the IDs and timing needed to create a telehealth consultation.
+ * Carries only the client-editable values required to schedule a consultation.
+ * The service always creates it with SCHEDULED status.
  */
 public class CreateConsultationRequest {
 
@@ -23,9 +23,6 @@ public class CreateConsultationRequest {
     @NotNull(message = "Scheduled time is required")
     @Future(message = "Scheduled time must be in the future")
     private Instant scheduledAt;
-
-    @NotNull(message = "Status is required")
-    private ConsultationStatus status;
 
     public Long getPatientId() {
         return patientId;
@@ -57,13 +54,5 @@ public class CreateConsultationRequest {
 
     public void setScheduledAt(Instant scheduledAt) {
         this.scheduledAt = scheduledAt;
-    }
-
-    public ConsultationStatus getStatus() {
-        return status;
-    }
-
-    public void setStatus(ConsultationStatus status) {
-        this.status = status;
     }
 }
