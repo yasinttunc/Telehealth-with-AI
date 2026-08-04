@@ -41,6 +41,7 @@ public class AppUserController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     public AppUserResponse getUserById(@PathVariable Long id) {
         return appUserService.getUserById(id);
     }

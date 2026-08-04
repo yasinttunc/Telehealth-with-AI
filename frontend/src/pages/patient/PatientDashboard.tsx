@@ -22,10 +22,10 @@ export function PatientDashboard() {
   const [clinics, setClinics] = useState<Clinic[]>([])
 
   useEffect(() => {
-    if (!user?.patientId) return
+    if (!user) return
     let active = true
     Promise.all([
-      api.consultations.list({ patientId: user.patientId }),
+      api.consultations.mine(),
       api.doctors.list(),
       api.clinics.list(),
     ]).then(([cons, docs, clns]) => {
@@ -51,6 +51,16 @@ export function PatientDashboard() {
     .sort((a, b) => b.scheduledAt.localeCompare(a.scheduledAt))
 
   const basePath = '/patient/consultations'
+  const clinicianLabel = (consultation: Consultation) => {
+    const doctor = doctors.find((item) => item.appUserId === consultation.clinicianId)
+    return doctor
+      ? `Dr ${doctor.firstName} ${doctor.lastName}`
+      : consultation.clinicianUsername
+        ? `Dr ${consultation.clinicianUsername}`
+        : clinicianName(doctors, consultation.clinicianId)
+  }
+  const clinicLabel = (consultation: Consultation) =>
+    consultation.clinicName ?? clinicName(clinics, consultation.clinicId)
 
   return (
     <div>
@@ -65,12 +75,12 @@ export function PatientDashboard() {
             >
               <div className="mb-1 flex items-center justify-between">
                 <span className="text-sm font-medium text-slate-800">
-                  {clinicianName(doctors, upcoming.clinicianId)}
+                  {clinicianLabel(upcoming)}
                 </span>
                 <StatusBadge status={upcoming.status} />
               </div>
               <p className="text-xs text-slate-500">
-                {formatDateTime(upcoming.scheduledAt)} · {clinicName(clinics, upcoming.clinicId)}
+                {formatDateTime(upcoming.scheduledAt)} · {clinicLabel(upcoming)}
               </p>
             </Link>
           ) : (
@@ -86,7 +96,7 @@ export function PatientDashboard() {
               {history.slice(0, 5).map((c) => (
                 <li key={c.consultationId} className="flex items-center justify-between py-2 text-sm">
                   <Link to={`${basePath}/${c.consultationId}`} className="text-slate-700 hover:text-accent-700">
-                    {clinicianName(doctors, c.clinicianId)}
+                    {clinicianLabel(c)}
                     <span className="text-slate-400"> · {formatDateTime(c.scheduledAt)}</span>
                   </Link>
                   <StatusBadge status={c.status} />

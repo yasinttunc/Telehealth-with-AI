@@ -1,7 +1,6 @@
 package com.project.ibm.telehealth_with_ai.dto.request;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 /**
@@ -16,17 +15,6 @@ public class UpdateClinicRequest {
     @NotBlank(message = "Clinic address is required")
     @Size(max = 255, message = "Clinic address must be 255 characters or fewer")
     private String clinicAddress;
-
-    @NotNull(message = "App user ID is required")
-    private Long appUserId;
-
-    public Long getAppUserId() {
-        return appUserId;
-    }
-
-    public void setAppUserId(Long appUserId) {
-        this.appUserId = appUserId;
-    }
 
     public String getClinicName() {
         return clinicName;

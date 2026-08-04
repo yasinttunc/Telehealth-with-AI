@@ -1,32 +1,40 @@
-# React + TypeScript + Vite
+# Telehealth With AI Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Student-project React, Vite, and TypeScript frontend for the Telehealth With AI application.
 
-Currently, two official plugins are available:
+## Run locally
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+hnpm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Demo accounts are intentionally mock-only:
+
+- `admin` / `admin`
+- `dr.sarah.patel` / `password`
+- `patient.oliver.hughes` / `password`
+
+## Current mode
+
+All pages use `src/api/index.ts`, which currently exposes the in-memory `mockApi` implementation. No browser request is sent to Spring yet. This keeps the student MVP easy to demonstrate while the backend authentication work is completed.
+
+The mock payload types in `src/api/types.ts` already reflect the important backend rules:
+
+- Doctor and patient profiles are created with one enabled, unlinked `AppUser` of the matching role.
+- Profile updates do not change `appUserId`.
+- Clinic fields are `clinicName` and `clinicAddress`.
+- A consultation is created as `SCHEDULED`; status changes use a separate operation.
+
+## Later API handoff
+
+After backend JWT login and CORS are ready, add `src/api/springApi.ts` with the same facade shape and switch resources in `src/api/index.ts`. Keep page components importing only `api`.
+
+Expected routes:
+
+- `POST /api/auth/login` for token-based login.
+- `/api/users`, `/api/doctors`, `/api/patients`, and `/api/clinics` for CRUD.
+- `POST /api/consultations`, `GET /api/consultations`, `GET /api/consultations/{id}`.
+- The backend's dedicated consultation-status route for lifecycle changes.
+- The backend's transcript and alert routes when those features are completed.
+
+Do not switch one page at a time to Axios. Replace the facade implementation after authentication, CORS, and the relevant backend routes have been tested together.

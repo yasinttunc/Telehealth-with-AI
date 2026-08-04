@@ -9,6 +9,16 @@ public class SymptomItem {
     private String assertion;
     private Double confidence;
 
+    public SymptomItem() {
+        // Required by Jackson when a JSONB symptom list is deserialized.
+    }
+
+    public SymptomItem(String name, String assertion, Double confidence) {
+        this.name = name;
+        this.assertion = assertion;
+        this.confidence = confidence;
+    }
+
     public String getName() {
         return name;
     }

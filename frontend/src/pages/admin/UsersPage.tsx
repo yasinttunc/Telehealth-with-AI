@@ -5,18 +5,17 @@
  */
 
 import { useEffect, useState, type FormEvent } from 'react'
-import { Pencil, Trash2, Plus } from 'lucide-react'
+import { Archive, Pencil, Plus } from 'lucide-react'
 import { api, ApiError } from '../../api'
 import { DataTable, type Column } from '../../components/DataTable'
 import { Drawer } from '../../components/Drawer'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { EmptyState } from '../../components/EmptyState'
 import { FormField } from '../../components/FormField'
-import { inputClass, selectClass } from '../../components/formStyles'
+import { inputClass } from '../../components/formStyles'
 import { PageHeader, PrimaryButton, IconButton, LoadingRow, ErrorRow } from '../../components/ui'
-import type { AppUser, Role } from '../../types/domain'
-
-const ROLES: Role[] = ['ADMIN', 'DOCTOR', 'PATIENT']
+import { SuccessMessage } from '../../components/SuccessMessage'
+import type { AppUser, Doctor, Patient, Role } from '../../types/domain'
 
 interface UserForm {
   username: string
@@ -26,12 +25,15 @@ interface UserForm {
   enabled: boolean
 }
 
-const emptyForm: UserForm = { username: '', email: '', role: 'PATIENT', password: '', enabled: true }
+const emptyForm: UserForm = { username: '', email: '', role: 'ADMIN', password: '', enabled: true }
 
 export function UsersPage() {
   const [users, setUsers] = useState<AppUser[]>([])
+  const [doctors, setDoctors] = useState<Doctor[]>([])
+  const [patients, setPatients] = useState<Patient[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
 
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editing, setEditing] = useState<AppUser | null>(null)
@@ -45,7 +47,14 @@ export function UsersPage() {
   async function load() {
     setLoading(true)
     try {
-      setUsers(await api.users.list())
+      const [userRows, doctorRows, patientRows] = await Promise.all([
+        api.users.list(),
+        api.doctors.list(),
+        api.patients.list(),
+      ])
+      setUsers(userRows)
+      setDoctors(doctorRows)
+      setPatients(patientRows)
       setError(null)
     } catch {
       setError('Could not load users.')
@@ -62,6 +71,8 @@ export function UsersPage() {
     setEditing(null)
     setForm(emptyForm)
     setFieldErrors({})
+    setError(null)
+    setSuccess(null)
     setDrawerOpen(true)
   }
 
@@ -69,6 +80,8 @@ export function UsersPage() {
     setEditing(u)
     setForm({ username: u.username, email: u.email, role: u.role, password: '', enabled: u.enabled })
     setFieldErrors({})
+    setError(null)
+    setSuccess(null)
     setDrawerOpen(true)
   }
 
@@ -76,7 +89,7 @@ export function UsersPage() {
     const errs: Record<string, string> = {}
     if (!form.username.trim()) errs.username = 'Username is required'
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email.trim())) errs.email = 'Enter a valid email'
-    if (!editing && form.password.length < 4) errs.password = 'Password must be at least 4 characters'
+    if (!editing && form.password.length < 8) errs.password = 'Password must be at least 8 characters'
     return errs
   }
 
@@ -86,24 +99,28 @@ export function UsersPage() {
     setFieldErrors(errs)
     if (Object.keys(errs).length > 0) return
     setSaving(true)
+    setError(null)
     try {
       if (editing) {
-        await api.users.update(editing.userId, {
+        const updated = await api.users.update(editing.userId, {
           username: form.username,
           email: form.email,
           role: form.role,
           enabled: form.enabled,
         })
+        setUsers((previous) => previous.map((user) => user.userId === updated.userId ? updated : user))
+        setSuccess('User updated.')
       } else {
-        await api.users.create({
+        const created = await api.users.create({
           username: form.username,
           email: form.email,
           role: form.role,
           password: form.password,
         })
+        setUsers((previous) => [created, ...previous])
+        setSuccess('User created.')
       }
       setDrawerOpen(false)
-      await load()
     } catch (err) {
       if (err instanceof ApiError && err.fieldErrors) setFieldErrors(err.fieldErrors)
       else if (err instanceof ApiError) setError(err.message)
@@ -116,10 +133,12 @@ export function UsersPage() {
   async function handleDelete() {
     if (!deleteTarget) return
     setDeleting(true)
+    setError(null)
     try {
       await api.users.remove(deleteTarget.userId)
+      setUsers((previous) => previous.map((user) => user.userId === deleteTarget.userId ? { ...user, enabled: false } : user))
       setDeleteTarget(null)
-      await load()
+      setSuccess('User account archived.')
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not delete user.')
       setDeleteTarget(null)
@@ -143,6 +162,14 @@ export function UsersPage() {
     },
   ]
 
+  const linkedAccountIds = new Set([
+    ...doctors.flatMap((doctor) => doctor.appUserId == null ? [] : [doctor.appUserId]),
+    ...patients.flatMap((patient) => patient.appUserId == null ? [] : [patient.appUserId]),
+  ])
+  const activeUsers = users.filter((account) => account.enabled)
+  const archivedUsers = users.filter((account) => !account.enabled)
+  const isLinkedAccount = (account: AppUser) => linkedAccountIds.has(account.userId)
+
   return (
     <div>
       <PageHeader
@@ -156,11 +183,12 @@ export function UsersPage() {
         }
       />
 
+      {success && <SuccessMessage message={success} />}
       {error && <div className="mb-3"><ErrorRow message={error} /></div>}
 
       {loading ? (
         <LoadingRow />
-      ) : users.length === 0 ? (
+      ) : activeUsers.length === 0 ? (
         <EmptyState
           title="No users"
           message="Add the first user account."
@@ -174,19 +202,29 @@ export function UsersPage() {
       ) : (
         <DataTable
           columns={columns}
-          rows={users}
+          rows={activeUsers}
           rowKey={(u) => u.userId}
           actions={(u) => (
             <>
               <IconButton label="Edit user" onClick={() => openEdit(u)}>
                 <Pencil size={16} />
               </IconButton>
-              <IconButton label="Delete user" danger onClick={() => setDeleteTarget(u)}>
-                <Trash2 size={16} />
+              <IconButton label="Archive user" danger onClick={() => setDeleteTarget(u)}>
+                <Archive size={16} />
               </IconButton>
             </>
           )}
         />
+      )}
+
+      {!loading && archivedUsers.length > 0 && (
+        <section className="mt-8">
+          <h3 className="text-base font-semibold text-slate-800">Archived accounts</h3>
+          <p className="mb-3 mt-1 text-sm text-slate-500">
+            Archived accounts cannot sign in. Their clinical profiles and consultation history are retained.
+          </p>
+          <DataTable columns={columns} rows={archivedUsers} rowKey={(u) => u.userId} />
+        </section>
       )}
 
       <Drawer open={drawerOpen} title={editing ? 'Edit user' : 'Add user'} onClose={() => setDrawerOpen(false)}>
@@ -209,18 +247,15 @@ export function UsersPage() {
             />
           </FormField>
           <FormField id="u-role" label="Role" required>
-            <select
-              id="u-role"
-              className={selectClass}
-              value={form.role}
-              onChange={(e) => setForm({ ...form, role: e.target.value as Role })}
-            >
-              {ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
-              ))}
-            </select>
+            {editing ? (
+              <p id="u-role" className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                {form.role}{isLinkedAccount(editing) ? ' (linked clinical profile)' : ''}
+              </p>
+            ) : (
+              <p id="u-role" className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                ADMIN
+              </p>
+            )}
           </FormField>
 
           {!editing && (
@@ -264,8 +299,9 @@ export function UsersPage() {
 
       <ConfirmDialog
         open={deleteTarget !== null}
-        title="Delete user"
-        message={deleteTarget ? `Delete account "${deleteTarget.username}"? This cannot be undone.` : ''}
+        title="Archive user"
+        message={deleteTarget ? `Archive account "${deleteTarget.username}"? The account will no longer be able to sign in, but its history will be kept.` : ''}
+        confirmLabel="Archive"
         busy={deleting}
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}

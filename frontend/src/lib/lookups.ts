@@ -18,5 +18,5 @@ export function clinicianName(doctors: Doctor[], clinicianUserId: number): strin
 
 export function clinicName(clinics: Clinic[], clinicId: number): string {
   const c = clinics.find((x) => x.clinicId === clinicId)
-  return c ? c.name : `Clinic #${clinicId}`
+  return c ? c.clinicName : `Clinic #${clinicId}`
 }

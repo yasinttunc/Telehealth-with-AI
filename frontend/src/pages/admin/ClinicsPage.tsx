@@ -1,11 +1,11 @@
 /*
- * ClinicsPage (admin, spec §4) — minimal mock CRUD: list + name/address form.
+ * ClinicsPage (admin, spec §4) — minimal mock CRUD: list + clinic name/address form.
  * Clinics are a planned backend feature, so this runs entirely on mockApi.
  */
 
 import { useEffect, useState, type FormEvent } from 'react'
 import { Pencil, Trash2, Plus } from 'lucide-react'
-import { api } from '../../api'
+import { api, ApiError } from '../../api'
 import { DataTable, type Column } from '../../components/DataTable'
 import { Drawer } from '../../components/Drawer'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
@@ -13,19 +13,21 @@ import { EmptyState } from '../../components/EmptyState'
 import { FormField } from '../../components/FormField'
 import { inputClass } from '../../components/formStyles'
 import { PageHeader, PrimaryButton, IconButton, LoadingRow, ErrorRow } from '../../components/ui'
+import { SuccessMessage } from '../../components/SuccessMessage'
 import type { Clinic } from '../../types/domain'
 
 interface ClinicForm {
-  name: string
-  address: string
+  clinicName: string
+  clinicAddress: string
 }
 
-const emptyForm: ClinicForm = { name: '', address: '' }
+const emptyForm: ClinicForm = { clinicName: '', clinicAddress: '' }
 
 export function ClinicsPage() {
   const [clinics, setClinics] = useState<Clinic[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
 
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editing, setEditing] = useState<Clinic | null>(null)
@@ -56,31 +58,43 @@ export function ClinicsPage() {
     setEditing(null)
     setForm(emptyForm)
     setFieldErrors({})
+    setError(null)
+    setSuccess(null)
     setDrawerOpen(true)
   }
 
   function openEdit(c: Clinic) {
     setEditing(c)
-    setForm({ name: c.name, address: c.address })
+    setForm({ clinicName: c.clinicName, clinicAddress: c.clinicAddress })
     setFieldErrors({})
+    setError(null)
+    setSuccess(null)
     setDrawerOpen(true)
   }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     const errs: Record<string, string> = {}
-    if (!form.name.trim()) errs.name = 'Name is required'
-    if (!form.address.trim()) errs.address = 'Address is required'
+    if (!form.clinicName.trim()) errs.clinicName = 'Clinic name is required'
+    if (!form.clinicAddress.trim()) errs.clinicAddress = 'Clinic address is required'
     setFieldErrors(errs)
     if (Object.keys(errs).length > 0) return
     setSaving(true)
+    setError(null)
     try {
-      if (editing) await api.clinics.update(editing.clinicId, form)
-      else await api.clinics.create(form)
+      if (editing) {
+        const updated = await api.clinics.update(editing.clinicId, form)
+        setClinics((previous) => previous.map((clinic) => clinic.clinicId === updated.clinicId ? updated : clinic))
+        setSuccess('Clinic updated.')
+      } else {
+        const created = await api.clinics.create(form)
+        setClinics((previous) => [created, ...previous])
+        setSuccess('Clinic created.')
+      }
       setDrawerOpen(false)
-      await load()
-    } catch {
-      setError('Could not save clinic.')
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.fieldErrors) setFieldErrors(caught.fieldErrors)
+      else setError(caught instanceof ApiError ? caught.message : 'Could not save clinic.')
     } finally {
       setSaving(false)
     }
@@ -89,20 +103,22 @@ export function ClinicsPage() {
   async function handleDelete() {
     if (!deleteTarget) return
     setDeleting(true)
+    setError(null)
     try {
       await api.clinics.remove(deleteTarget.clinicId)
+      setClinics((previous) => previous.filter((clinic) => clinic.clinicId !== deleteTarget.clinicId))
       setDeleteTarget(null)
-      await load()
-    } catch {
-      setError('Could not delete clinic.')
+      setSuccess('Clinic deleted.')
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not delete clinic.')
     } finally {
       setDeleting(false)
     }
   }
 
   const columns: Column<Clinic>[] = [
-    { header: 'Name', cell: (c) => <span className="font-medium text-slate-800">{c.name}</span> },
-    { header: 'Address', cell: (c) => <span className="text-slate-500">{c.address}</span> },
+    { header: 'Name', cell: (c) => <span className="font-medium text-slate-800">{c.clinicName}</span> },
+    { header: 'Address', cell: (c) => <span className="text-slate-500">{c.clinicAddress}</span> },
   ]
 
   return (
@@ -118,6 +134,7 @@ export function ClinicsPage() {
         }
       />
 
+      {success && <SuccessMessage message={success} />}
       {error && <div className="mb-3"><ErrorRow message={error} /></div>}
 
       {loading ? (
@@ -153,20 +170,20 @@ export function ClinicsPage() {
 
       <Drawer open={drawerOpen} title={editing ? 'Edit clinic' : 'Add clinic'} onClose={() => setDrawerOpen(false)}>
         <form onSubmit={handleSubmit} noValidate>
-          <FormField id="cl-name" label="Name" required error={fieldErrors.name}>
+          <FormField id="cl-name" label="Clinic name" required error={fieldErrors.clinicName}>
             <input
               id="cl-name"
               className={inputClass}
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              value={form.clinicName}
+              onChange={(e) => setForm({ ...form, clinicName: e.target.value })}
             />
           </FormField>
-          <FormField id="cl-address" label="Address" required error={fieldErrors.address}>
+          <FormField id="cl-address" label="Clinic address" required error={fieldErrors.clinicAddress}>
             <input
               id="cl-address"
               className={inputClass}
-              value={form.address}
-              onChange={(e) => setForm({ ...form, address: e.target.value })}
+              value={form.clinicAddress}
+              onChange={(e) => setForm({ ...form, clinicAddress: e.target.value })}
             />
           </FormField>
           <div className="mt-2 flex justify-end gap-2">
@@ -187,7 +204,7 @@ export function ClinicsPage() {
       <ConfirmDialog
         open={deleteTarget !== null}
         title="Delete clinic"
-        message={deleteTarget ? `Delete "${deleteTarget.name}"? This cannot be undone.` : ''}
+        message={deleteTarget ? `Delete "${deleteTarget.clinicName}"? This cannot be undone.` : ''}
         busy={deleting}
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}

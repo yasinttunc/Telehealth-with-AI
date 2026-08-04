@@ -74,6 +74,8 @@ export const appUsers: AppUser[] = [
   { userId: 5, username: 'patient.oliver.hughes', email: 'oliver.hughes@telehealth.example', role: 'PATIENT', enabled: true },
   { userId: 6, username: 'patient.amara.said', email: 'amara.said@telehealth.example', role: 'PATIENT', enabled: true },
   { userId: 7, username: 'patient.tomasz.nowak', email: 'tomasz.nowak@telehealth.example', role: 'PATIENT', enabled: false },
+  { userId: 8, username: 'dr.noah.williams', email: 'noah.williams@telehealth.example', role: 'DOCTOR', enabled: true },
+  { userId: 9, username: 'patient.ella.jones', email: 'ella.jones@telehealth.example', role: 'PATIENT', enabled: true },
 ]
 
 export const doctors: Doctor[] = [
@@ -83,7 +85,7 @@ export const doctors: Doctor[] = [
     firstName: 'Sarah',
     lastName: 'Patel',
     specialty: 'General Practice',
-    availableTimes: ['Mon 09:00', 'Wed 13:00', 'Fri 10:00'],
+    availableTimes: ['2026-08-03T09:00:00Z', '2026-08-05T13:00:00Z', '2026-08-07T10:00:00Z'],
   },
   {
     doctorId: 2,
@@ -91,7 +93,7 @@ export const doctors: Doctor[] = [
     firstName: 'James',
     lastName: 'Okoro',
     specialty: 'Cardiology',
-    availableTimes: ['Tue 11:00', 'Thu 15:00'],
+    availableTimes: ['2026-08-04T11:00:00Z', '2026-08-06T15:00:00Z'],
   },
   {
     doctorId: 3,
@@ -99,7 +101,7 @@ export const doctors: Doctor[] = [
     firstName: 'Mei',
     lastName: 'Lin',
     specialty: 'Dermatology',
-    availableTimes: ['Mon 14:00', 'Wed 09:00'],
+    availableTimes: ['2026-08-03T14:00:00Z', '2026-08-05T09:00:00Z'],
   },
 ]
 
@@ -113,9 +115,9 @@ export const patients: Patient[] = [
 ]
 
 export const clinics: Clinic[] = [
-  { clinicId: 1, name: 'Swansea Central Clinic', address: '12 Kingsway, Swansea SA1 5JQ' },
-  { clinicId: 2, name: 'Cardiff Bay Health Centre', address: '5 Bute Terrace, Cardiff CF10 2FL' },
-  { clinicId: 3, name: 'Newport Riverside Practice', address: '88 Commercial St, Newport NP20 1LN' },
+  { clinicId: 1, clinicName: 'Swansea Central Clinic', clinicAddress: '12 Kingsway, Swansea SA1 5JQ' },
+  { clinicId: 2, clinicName: 'Cardiff Bay Health Centre', clinicAddress: '5 Bute Terrace, Cardiff CF10 2FL' },
+  { clinicId: 3, clinicName: 'Newport Riverside Practice', clinicAddress: '88 Commercial St, Newport NP20 1LN' },
 ]
 
 const COMPLETED_TRANSCRIPT_1 =
@@ -151,9 +153,9 @@ export const symptomRecords: SymptomRecord[] = [
     promptVersion: 'demo-v1',
     createdAt: '2026-06-10T13:55:00Z',
     symptoms: [
-      { name: 'Dry cough', severity: 'MODERATE', confidence: 0.88 },
-      { name: 'Shortness of breath', severity: 'MILD', confidence: 0.72 },
-      { name: 'Headache', severity: 'MILD', confidence: 0.61 },
+      { name: 'Dry cough', assertion: 'PRESENT', confidence: 0.88 },
+      { name: 'Shortness of breath', assertion: 'PRESENT', confidence: 0.72 },
+      { name: 'Headache', assertion: 'PRESENT', confidence: 0.61 },
     ],
   },
   {
@@ -163,8 +165,8 @@ export const symptomRecords: SymptomRecord[] = [
     promptVersion: 'demo-v1',
     createdAt: '2026-05-20T10:20:00Z',
     symptoms: [
-      { name: 'Skin rash', severity: 'MODERATE', confidence: 0.9 },
-      { name: 'Fatigue', severity: 'MILD', confidence: 0.55 },
+      { name: 'Skin rash', assertion: 'PRESENT', confidence: 0.9 },
+      { name: 'Fatigue', assertion: 'PRESENT', confidence: 0.55 },
     ],
   },
 ]

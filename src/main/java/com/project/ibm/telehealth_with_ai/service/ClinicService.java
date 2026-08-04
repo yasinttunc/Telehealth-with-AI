@@ -10,11 +10,9 @@ import com.project.ibm.telehealth_with_ai.dto.response.PatientResponse;
 import com.project.ibm.telehealth_with_ai.exception.BadRequestException;
 import com.project.ibm.telehealth_with_ai.exception.DuplicateResourceException;
 import com.project.ibm.telehealth_with_ai.exception.ResourceNotFoundException;
-import com.project.ibm.telehealth_with_ai.model.AppUser;
 import com.project.ibm.telehealth_with_ai.model.Clinic;
 import com.project.ibm.telehealth_with_ai.model.Doctor;
 import com.project.ibm.telehealth_with_ai.model.Patient;
-import com.project.ibm.telehealth_with_ai.repository.AppUserRepository;
 import com.project.ibm.telehealth_with_ai.repository.ClinicRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,11 +24,9 @@ import java.util.List;
 @Transactional
 public class ClinicService {
 
-    private final AppUserRepository appUserRepository;
     private final ClinicRepository clinicRepository;
-    public ClinicService(ClinicRepository clinicRepository, AppUserRepository appUserRepository) {
+    public ClinicService(ClinicRepository clinicRepository) {
         this.clinicRepository = clinicRepository;
-        this.appUserRepository = appUserRepository;
     }
 
     private ClinicResponse toResponse(Clinic clinic) {
@@ -44,11 +40,6 @@ public class ClinicService {
     }
 
     public ClinicResponse createClinic(CreateClinicRequest request){
-        AppUser appUser = appUserRepository.findById(request.getAppUserId())
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-        if (appUser.getRole() != AppUser.Role.ADMIN) {
-            throw new BadRequestException("Selected user must have the ADMIN role");
-        }
         Clinic clinic = new Clinic();
         if (clinicRepository.existsByClinicName(request.getClinicName())) {
             throw new DuplicateResourceException("Clinic name already exists");
@@ -60,11 +51,6 @@ public class ClinicService {
     }
 
     public ClinicResponse updateClinic(Long clinicId, UpdateClinicRequest request){
-        AppUser appUser = appUserRepository.findById(request.getAppUserId())
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-        if (appUser.getRole() != AppUser.Role.ADMIN) {
-            throw new BadRequestException("Selected user must have the ADMIN role");
-        }
         Clinic clinic = clinicRepository.findById(clinicId)
                 .orElseThrow(() -> new ResourceNotFoundException("Clinic not found"));
         clinic.setClinicName(request.getClinicName());

@@ -3,6 +3,8 @@
  * confirmation). Red is reserved for the destructive action button (spec §6).
  */
 
+import { useEffect, useRef } from 'react'
+
 interface ConfirmDialogProps {
   open: boolean
   title: string
@@ -22,10 +24,41 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  const openerRef = useRef<HTMLElement | null>(null)
+  const cancelButtonRef = useRef<HTMLButtonElement>(null)
+  const onCancelRef = useRef(onCancel)
+  const busyRef = useRef(busy)
+
+  onCancelRef.current = onCancel
+  busyRef.current = busy
+
+  useEffect(() => {
+    if (!open) return
+
+    openerRef.current = document.activeElement as HTMLElement
+    cancelButtonRef.current?.focus()
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape' && !busyRef.current) onCancelRef.current()
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      openerRef.current?.focus()
+    }
+  }, [open])
+
   if (!open) return null
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-      <div className="absolute inset-0 bg-black/40" onClick={onCancel} aria-hidden />
+      <button
+        type="button"
+        aria-label="Cancel confirmation"
+        className="absolute inset-0 cursor-default bg-black/40"
+        onClick={onCancel}
+        disabled={busy}
+      />
       <div
         role="alertdialog"
         aria-modal="true"
@@ -36,8 +69,10 @@ export function ConfirmDialog({
         <p className="mb-5 text-sm text-slate-600">{message}</p>
         <div className="flex justify-end gap-2">
           <button
+            ref={cancelButtonRef}
             type="button"
             onClick={onCancel}
+            disabled={busy}
             className="h-10 rounded-md border border-slate-200 px-4 text-sm text-slate-700 hover:bg-slate-50"
           >
             Cancel

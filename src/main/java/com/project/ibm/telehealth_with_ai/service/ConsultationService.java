@@ -2,6 +2,7 @@ package com.project.ibm.telehealth_with_ai.service;
 
 import com.project.ibm.telehealth_with_ai.dto.request.CreateConsultationRequest;
 import com.project.ibm.telehealth_with_ai.dto.request.UpdateConsultationStatusRequest;
+import com.project.ibm.telehealth_with_ai.dto.request.UpdateTranscriptRequest;
 import com.project.ibm.telehealth_with_ai.dto.response.ConsultationResponse;
 import com.project.ibm.telehealth_with_ai.exception.BadRequestException;
 import com.project.ibm.telehealth_with_ai.exception.ResourceNotFoundException;
@@ -21,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import org.springframework.security.access.AccessDeniedException;
 
+import java.time.Instant;
 import java.util.List;
 
 @Service
@@ -60,6 +62,7 @@ public class ConsultationService {
     }
 
     public ConsultationResponse createConsultation(CreateConsultationRequest request) {
+
         Patient patient = patientRepository.findById(request.getPatientId())
                 .orElseThrow(() -> new ResourceNotFoundException("Patient not found"));
 
@@ -68,6 +71,18 @@ public class ConsultationService {
 
         if(clinician.getRole() != AppUser.Role.DOCTOR) {
             throw new BadRequestException("Selected user must have the DOCTOR role");
+        }
+
+        if (!request.getScheduledAt().isAfter(Instant.now())) {
+            throw new BadRequestException("Scheduled time must be in the future");
+        }
+
+        AppUser currentUser = getCurrentUser();
+        if (currentUser.getRole() == AppUser.Role.DOCTOR
+                && !clinician.getUserId().equals(currentUser.getUserId())) {
+            throw new AccessDeniedException(
+                    "Doctors can create consultations only for themselves"
+            );
         }
 
         Clinic clinic = clinicRepository.findById(request.getClinicId())
@@ -84,7 +99,7 @@ public class ConsultationService {
 
     @Transactional(readOnly = true)
     public List<ConsultationResponse> getAllConsultations() {
-        return  consultationRepository.findAllByOrderByScheduledDateDesc()
+        return  consultationRepository.findAllByOrderByScheduledAtDesc()
                 .stream()
                 .map(this::toResponse)
                 .toList();
@@ -109,14 +124,17 @@ public class ConsultationService {
             throw new BadRequestException("No authenticated user found");
         }
 
-        return appUserRepository.findByUsernameIgnoreCase(authentication.getName())
-                .orElseThrow(() -> new ResourceNotFoundException("Current user not found"));
-    }
+        AppUser currentUser =
+                appUserRepository.findByUsernameIgnoreCase(authentication.getName());
 
-    private void assertCanRead(Consultation consultation, AppUser currentUser) {
-        if (currentUser.getRole() == AppUser.Role.ADMIN) {
-            return;
+        if (currentUser == null) {
+            throw new ResourceNotFoundException("Current user not found");
         }
+
+        return currentUser;
+    }
+    private void assertCanRead(Consultation consultation, AppUser currentUser) {
+        if (currentUser.getRole() == AppUser.Role.ADMIN) return;
 
         if (currentUser.getRole() == AppUser.Role.DOCTOR
                 && consultation.getClinician().getUserId().equals(currentUser.getUserId())) {
@@ -125,8 +143,7 @@ public class ConsultationService {
 
         if (currentUser.getRole() == AppUser.Role.PATIENT
                 && consultation.getPatient().getAppUser() != null
-                && consultation.getPatient().getAppUser().getUserId()
-                .equals(currentUser.getUserId())) {
+                && consultation.getPatient().getAppUser().getUserId().equals(currentUser.getUserId())) {
             return;
         }
 
@@ -134,14 +151,13 @@ public class ConsultationService {
     }
 
     private void assertCanManage(Consultation consultation, AppUser currentUser) {
-        if (currentUser.getRole() == AppUser.Role.ADMIN) {
-            return;
-        }
+        if (currentUser.getRole() == AppUser.Role.ADMIN) return;
 
         if (currentUser.getRole() == AppUser.Role.DOCTOR
                 && consultation.getClinician().getUserId().equals(currentUser.getUserId())) {
             return;
         }
+
         throw new AccessDeniedException("You are not allowed to manage this consultation");
     }
 
@@ -163,17 +179,58 @@ public class ConsultationService {
             UpdateConsultationStatusRequest request
     ) {
         Consultation consultation = findConsultation(consultationId);
-        assertCanManage(consultation,getCurrentUser());
+        assertCanManage(consultation, getCurrentUser());
 
-        if(!isAllowedTransition(consultation.getStatus(), request.getStatus())) {
-            throw new BadRequestException("Status transition from " + consultation.getStatus()
-                    + " to " + request.getStatus() + " is not allowed"
+        if (!isAllowedTransition(consultation.getStatus(), request.getStatus())) {
+            throw new BadRequestException(
+                    "Status transition from " + consultation.getStatus()
+                            + " to " + request.getStatus() + " is not allowed"
             );
         }
 
         consultation.setStatus(request.getStatus());
         return toResponse(consultationRepository.save(consultation));
     }
+
+    public ConsultationResponse updateTranscript(Long consultationId, UpdateTranscriptRequest request) {
+
+        Consultation consultation = findConsultation(consultationId);
+        assertCanManage(consultation, getCurrentUser());
+
+        if (consultation.getStatus() != ConsultationStatus.IN_PROGRESS && consultation.getStatus() != ConsultationStatus.COMPLETED) {
+            throw new BadRequestException("Transcript can only be updated when consultation is in progress or completed");
+        }
+        consultation.setTranscript(request.getTranscript().trim());
+        return toResponse(consultationRepository.save(consultation));
+    }
+
+    @Transactional(readOnly = true)
+    public List<ConsultationResponse> getMyConsultations() {
+        AppUser currentUser = getCurrentUser();
+
+        if (currentUser.getRole() == AppUser.Role.DOCTOR) {
+            return consultationRepository
+                    .findByClinicianUserIdOrderByScheduledAtDesc(currentUser.getUserId())
+                    .stream()
+                    .map(this::toResponse)
+                    .toList();
+        }
+
+        if (currentUser.getRole() == AppUser.Role.PATIENT) {
+            Patient patient = patientRepository.findByAppUserUserId(currentUser.getUserId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Patient profile not found"));
+
+            return consultationRepository
+                    .findByPatientPatientIdOrderByScheduledAtDesc(patient.getPatientId())
+                    .stream()
+                    .map(this::toResponse)
+                    .toList();
+        }
+
+        throw new AccessDeniedException("This route is for doctors and patients only");
+    }
+
+
 
 
 }

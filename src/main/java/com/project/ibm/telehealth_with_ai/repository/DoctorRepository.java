@@ -11,10 +11,11 @@ import java.util.List;
 public interface DoctorRepository extends JpaRepository<Doctor, Long> {
 
     Doctor findByDoctorId(Long doctorId);
-
     List<Doctor> findBySpecialtyIgnoreCase(String specialty);
 
     List<Doctor> findByAvailableTimesContains(Instant time);
     List<Doctor> findAll();
+    List<Doctor> findByAppUserEnabledTrue();
     boolean existsByAppUserUserId(Long userId);
+
 }

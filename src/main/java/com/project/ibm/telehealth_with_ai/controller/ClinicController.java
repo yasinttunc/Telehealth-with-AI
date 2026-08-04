@@ -33,13 +33,13 @@ public class ClinicController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'DOCTOR', 'PATIENT')")
     public ClinicResponse getById(@PathVariable Long id) {
         return clinicService.getClinicById(id);
     }
 
     @GetMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'DOCTOR', 'PATIENT')")
     public List<ClinicResponse> getAll() {
         return clinicService.getAllClinics();
     }

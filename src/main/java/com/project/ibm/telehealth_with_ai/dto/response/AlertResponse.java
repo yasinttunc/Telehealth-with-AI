@@ -1,15 +1,14 @@
 package com.project.ibm.telehealth_with_ai.dto.response;
 
+import com.project.ibm.telehealth_with_ai.model.AlertStatus;
 import java.math.BigDecimal;
 import java.time.Instant;
 
-/**
- * Returns outbreak alert data produced by the analytics layer for admin review.
- */
+/** Safe API representation of one staff-facing alert. */
 public class AlertResponse {
 
     private Long alertId;
-    private String clinicId;
+    private Long clinicId;
     private String symptomName;
     private Instant windowStart;
     private Instant windowEnd;
@@ -17,7 +16,7 @@ public class AlertResponse {
     private BigDecimal baselineCount;
     private BigDecimal score;
     private BigDecimal threshold;
-    private String status;
+    private AlertStatus status;
     private Instant createdAt;
 
     public Long getAlertId() {
@@ -28,11 +27,11 @@ public class AlertResponse {
         this.alertId = alertId;
     }
 
-    public String getClinicId() {
+    public Long getClinicId() {
         return clinicId;
     }
 
-    public void setClinicId(String clinicId) {
+    public void setClinicId(Long clinicId) {
         this.clinicId = clinicId;
     }
 
@@ -92,11 +91,11 @@ public class AlertResponse {
         this.threshold = threshold;
     }
 
-    public String getStatus() {
+    public AlertStatus getStatus() {
         return status;
     }
 
-    public void setStatus(String status) {
+    public void setStatus(AlertStatus status) {
         this.status = status;
     }
 

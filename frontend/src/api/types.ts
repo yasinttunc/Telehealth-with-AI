@@ -9,8 +9,17 @@
 import type { AlertStatus, ConsultationStatus, Role } from '../types/domain'
 
 export interface LoginRequest {
-  username: string
+  usernameOrEmail: string
   password: string
+}
+
+export interface LoginResponse {
+  accessToken: string
+  tokenType: string
+  userId: number
+  username: string
+  email: string
+  role: Role
 }
 
 export interface CreateUserRequest {
@@ -30,26 +39,40 @@ export interface UpdateUserRequest {
 }
 
 export interface CreateDoctorRequest {
+  /** Account fields are created with the doctor profile; the backend forces role DOCTOR. */
+  username: string
+  email: string
+  password: string
   firstName: string
   lastName: string
   specialty: string
   availableTimes: string[]
 }
 
-export type UpdateDoctorRequest = CreateDoctorRequest
+/** The backend updates the linked DOCTOR account and the profile in one transaction. */
+export type UpdateDoctorRequest = Omit<CreateDoctorRequest, 'password'> & {
+  enabled: boolean
+}
 
 export interface CreatePatientRequest {
+  /** Account fields are created with the patient profile; the backend forces role PATIENT. */
+  username: string
+  email: string
+  password: string
   firstName: string
   lastName: string
   nhsNumber: string
   dateOfBirth: string
 }
 
-export type UpdatePatientRequest = CreatePatientRequest
+/** The backend updates the linked PATIENT account and the profile in one transaction. */
+export type UpdatePatientRequest = Omit<CreatePatientRequest, 'password' | 'nhsNumber'> & {
+  enabled: boolean
+}
 
 export interface CreateClinicRequest {
-  name: string
-  address: string
+  clinicName: string
+  clinicAddress: string
 }
 
 export type UpdateClinicRequest = CreateClinicRequest
@@ -59,12 +82,14 @@ export interface CreateConsultationRequest {
   clinicianId: number
   clinicId: number
   scheduledAt: string
+}
+
+/** The backend creates consultations as SCHEDULED and updates status separately. */
+export interface UpdateConsultationStatusRequest {
   status: ConsultationStatus
 }
 
-export type UpdateConsultationRequest = CreateConsultationRequest
-
-/** Filters the caller applies; mockApi also enforces ownership by role. */
+/** Filters supplied by the caller. Real ownership enforcement arrives with JWT. */
 export interface ConsultationQuery {
   /** When set, restrict to a patient's own consultations. */
   patientId?: number

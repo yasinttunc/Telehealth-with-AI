@@ -1,31 +1,24 @@
-/*
- * AuthContext — holds the currently "logged in" demo user.
- *
- * IMPORTANT: this is temporary mock authentication until Spring JWT login is
- * implemented (spec §3). The user object is stored in sessionStorage so a page
- * refresh keeps you logged in during a demo. There is NO real browser security
- * here — the route guards are navigation UX only, and the backend remains the
- * real authority once wired up.
- */
-
-import { createContext, useCallback, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { api } from '../api'
+import {
+  ACCESS_TOKEN_KEY,
+  clearStoredSession,
+  SESSION_EXPIRED_EVENT,
+  USER_KEY,
+} from './authStorage'
 import type { AuthUser } from '../types/domain'
-
-const STORAGE_KEY = 'telehealth.demoUser'
 
 interface AuthContextValue {
   user: AuthUser | null
-  login: (username: string, password: string) => Promise<AuthUser>
+  login: (usernameOrEmail: string, password: string) => Promise<AuthUser>
   logout: () => void
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
 function readStoredUser(): AuthUser | null {
   try {
-    const raw = sessionStorage.getItem(STORAGE_KEY)
+    const raw = sessionStorage.getItem(USER_KEY)
     return raw ? (JSON.parse(raw) as AuthUser) : null
   } catch {
     return null
@@ -35,15 +28,25 @@ function readStoredUser(): AuthUser | null {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(readStoredUser)
 
-  const login = useCallback(async (username: string, password: string) => {
-    const authUser = await api.auth.login({ username, password })
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(authUser))
-    setUser(authUser)
-    return authUser
+  useEffect(() => {
+    function handleExpiredSession() {
+      setUser(null)
+    }
+
+    window.addEventListener(SESSION_EXPIRED_EVENT, handleExpiredSession)
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, handleExpiredSession)
+  }, [])
+
+  const login = useCallback(async (usernameOrEmail: string, password: string) => {
+    const result = await api.auth.login({ usernameOrEmail, password })
+    sessionStorage.setItem(ACCESS_TOKEN_KEY, result.accessToken)
+    sessionStorage.setItem(USER_KEY, JSON.stringify(result.user))
+    setUser(result.user)
+    return result.user
   }, [])
 
   const logout = useCallback(() => {
-    sessionStorage.removeItem(STORAGE_KEY)
+    clearStoredSession()
     setUser(null)
   }, [])
 

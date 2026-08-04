@@ -1,11 +1,8 @@
 /*
  * mockApi — in-memory implementation of the whole API surface.
  *
- * Every rendered page talks to this through src/api/index.ts. No real network
- * calls are made anywhere in the MVP: Spring JWT login and CORS do not exist
- * yet (see docs/current-backend-task-roadmap.md, Phase 3). When the backend is
- * ready, replace individual functions here with axios calls to the real routes
- * noted in each block's comment — the page-facing signatures stay identical.
+ * This remains a development-only fallback. The live application uses
+ * springApi through src/api/index.ts.
  *
  * State lives in module-level arrays seeded from ../data/mockData. Mutations
  * persist for the browser session and reset on reload, which is fine for a demo.
@@ -42,7 +39,7 @@ import {
   type LoginRequest,
   type UpdateAlertStatusRequest,
   type UpdateClinicRequest,
-  type UpdateConsultationRequest,
+  type UpdateConsultationStatusRequest,
   type UpdateDoctorRequest,
   type UpdatePatientRequest,
   type UpdateUserRequest,
@@ -64,10 +61,10 @@ const nextId = (rows: { [k: string]: unknown }[], key: string) =>
 
 // --- auth ------------------------------------------------------------------
 // TODO: replace with POST /api/auth/login once Phase 3 backend JWT work lands.
-async function login({ username, password }: LoginRequest): Promise<AuthUser> {
+async function login({ usernameOrEmail, password }: LoginRequest): Promise<AuthUser> {
   await delay()
   const account = demoAccounts.find(
-    (a) => a.username.toLowerCase() === username.trim().toLowerCase() && a.password === password,
+    (a) => a.username.toLowerCase() === usernameOrEmail.trim().toLowerCase() && a.password === password,
   )
   if (!account) {
     // One generic message whether username or password is wrong (spec §5.1).
@@ -119,6 +116,9 @@ async function deleteUser(id: number): Promise<void> {
   if (target.role === 'ADMIN' && remainingAdmins.length === 0) {
     throw new ApiError(409, 'Cannot delete the last remaining ADMIN account')
   }
+  if (doctors.some((doctor) => doctor.appUserId === id) || patients.some((patient) => patient.appUserId === id)) {
+    throw new ApiError(409, 'Cannot delete an account while it is linked to a profile')
+  }
   users = users.filter((u) => u.userId !== id)
 }
 
@@ -135,8 +135,13 @@ async function getDoctor(id: number): Promise<Doctor> {
 }
 async function createDoctor(req: CreateDoctorRequest): Promise<Doctor> {
   await delay()
+  if (users.some((u) => u.username.toLowerCase() === req.username.trim().toLowerCase())) throw new ApiError(409, 'Username already exists', { username: 'Username already exists' })
+  if (users.some((u) => u.email.toLowerCase() === req.email.trim().toLowerCase())) throw new ApiError(409, 'Email already exists', { email: 'Email already exists' })
+  const account: AppUser = { userId: nextId(users as never, 'userId'), username: req.username.trim(), email: req.email.trim(), role: 'DOCTOR', enabled: true }
+  users = [...users, account]
   const doctor: Doctor = {
     doctorId: nextId(doctors as never, 'doctorId'),
+    appUserId: account.userId,
     firstName: req.firstName.trim(),
     lastName: req.lastName.trim(),
     specialty: req.specialty.trim(),
@@ -147,7 +152,13 @@ async function createDoctor(req: CreateDoctorRequest): Promise<Doctor> {
 }
 async function updateDoctor(id: number, req: UpdateDoctorRequest): Promise<Doctor> {
   await delay()
-  if (!doctors.some((d) => d.doctorId === id)) throw new ApiError(404, 'Doctor not found')
+  const existing = doctors.find((d) => d.doctorId === id)
+  if (!existing) throw new ApiError(404, 'Doctor not found')
+  const account = users.find((u) => u.userId === existing.appUserId)
+  if (!account) throw new ApiError(409, 'Doctor account is missing')
+  if (users.some((u) => u.userId !== account.userId && u.username.toLowerCase() === req.username.trim().toLowerCase())) throw new ApiError(409, 'Username already exists', { username: 'Username already exists' })
+  if (users.some((u) => u.userId !== account.userId && u.email.toLowerCase() === req.email.trim().toLowerCase())) throw new ApiError(409, 'Email already exists', { email: 'Email already exists' })
+  users = users.map((u) => u.userId === account.userId ? { ...u, username: req.username.trim(), email: req.email.trim(), enabled: req.enabled } : u)
   doctors = doctors.map((d) =>
     d.doctorId === id
       ? { ...d, firstName: req.firstName.trim(), lastName: req.lastName.trim(), specialty: req.specialty.trim(), availableTimes: req.availableTimes }
@@ -177,8 +188,13 @@ async function createPatient(req: CreatePatientRequest): Promise<Patient> {
   if (patients.some((p) => p.nhsNumber === req.nhsNumber.trim())) {
     throw new ApiError(409, 'NHS number already exists', { nhsNumber: 'NHS number already exists' })
   }
+  if (users.some((u) => u.username.toLowerCase() === req.username.trim().toLowerCase())) throw new ApiError(409, 'Username already exists', { username: 'Username already exists' })
+  if (users.some((u) => u.email.toLowerCase() === req.email.trim().toLowerCase())) throw new ApiError(409, 'Email already exists', { email: 'Email already exists' })
+  const account: AppUser = { userId: nextId(users as never, 'userId'), username: req.username.trim(), email: req.email.trim(), role: 'PATIENT', enabled: true }
+  users = [...users, account]
   const patient: Patient = {
     patientId: nextId(patients as never, 'patientId'),
+    appUserId: account.userId,
     firstName: req.firstName.trim(),
     lastName: req.lastName.trim(),
     nhsNumber: req.nhsNumber.trim(),
@@ -191,12 +207,14 @@ async function updatePatient(id: number, req: UpdatePatientRequest): Promise<Pat
   await delay()
   const existing = patients.find((p) => p.patientId === id)
   if (!existing) throw new ApiError(404, 'Patient not found')
-  if (patients.some((p) => p.patientId !== id && p.nhsNumber === req.nhsNumber.trim())) {
-    throw new ApiError(409, 'NHS number already exists', { nhsNumber: 'NHS number already exists' })
-  }
+  const account = users.find((u) => u.userId === existing.appUserId)
+  if (!account) throw new ApiError(409, 'Patient account is missing')
+  if (users.some((u) => u.userId !== account.userId && u.username.toLowerCase() === req.username.trim().toLowerCase())) throw new ApiError(409, 'Username already exists', { username: 'Username already exists' })
+  if (users.some((u) => u.userId !== account.userId && u.email.toLowerCase() === req.email.trim().toLowerCase())) throw new ApiError(409, 'Email already exists', { email: 'Email already exists' })
+  users = users.map((u) => u.userId === account.userId ? { ...u, username: req.username.trim(), email: req.email.trim(), enabled: req.enabled } : u)
   patients = patients.map((p) =>
     p.patientId === id
-      ? { ...p, firstName: req.firstName.trim(), lastName: req.lastName.trim(), nhsNumber: req.nhsNumber.trim(), dateOfBirth: req.dateOfBirth }
+      ? { ...p, firstName: req.firstName.trim(), lastName: req.lastName.trim(), dateOfBirth: req.dateOfBirth }
       : p,
   )
   return { ...patients.find((p) => p.patientId === id)! }
@@ -216,8 +234,8 @@ async function createClinic(req: CreateClinicRequest): Promise<Clinic> {
   await delay()
   const clinic: Clinic = {
     clinicId: nextId(clinics as never, 'clinicId'),
-    name: req.name.trim(),
-    address: req.address.trim(),
+    clinicName: req.clinicName.trim(),
+    clinicAddress: req.clinicAddress.trim(),
   }
   clinics = [...clinics, clinic]
   return { ...clinic }
@@ -225,7 +243,7 @@ async function createClinic(req: CreateClinicRequest): Promise<Clinic> {
 async function updateClinic(id: number, req: UpdateClinicRequest): Promise<Clinic> {
   await delay()
   if (!clinics.some((c) => c.clinicId === id)) throw new ApiError(404, 'Clinic not found')
-  clinics = clinics.map((c) => (c.clinicId === id ? { ...c, name: req.name.trim(), address: req.address.trim() } : c))
+  clinics = clinics.map((c) => (c.clinicId === id ? { ...c, clinicName: req.clinicName.trim(), clinicAddress: req.clinicAddress.trim() } : c))
   return { ...clinics.find((c) => c.clinicId === id)! }
 }
 async function deleteClinic(id: number): Promise<void> {
@@ -256,18 +274,28 @@ async function createConsultation(req: CreateConsultationRequest): Promise<Consu
     clinicianId: req.clinicianId,
     clinicId: req.clinicId,
     scheduledAt: req.scheduledAt,
-    status: req.status,
+    status: 'SCHEDULED',
     transcript: null,
   }
   consultations = [...consultations, consultation]
   return { ...consultation }
 }
-async function updateConsultation(id: number, req: UpdateConsultationRequest): Promise<Consultation> {
+async function updateConsultationStatus(id: number, req: UpdateConsultationStatusRequest): Promise<Consultation> {
   await delay()
-  if (!consultations.some((c) => c.consultationId === id)) throw new ApiError(404, 'Consultation not found')
+  const existing = consultations.find((c) => c.consultationId === id)
+  if (!existing) throw new ApiError(404, 'Consultation not found')
+  const allowed: Record<Consultation['status'], Consultation['status'][]> = {
+    SCHEDULED: ['IN_PROGRESS', 'COMPLETED', 'CANCELLED'],
+    IN_PROGRESS: ['COMPLETED', 'CANCELLED'],
+    COMPLETED: [],
+    CANCELLED: [],
+  }
+  if (!allowed[existing.status].includes(req.status)) {
+    throw new ApiError(400, `Cannot change ${existing.status} consultation to ${req.status}`)
+  }
   consultations = consultations.map((c) =>
     c.consultationId === id
-      ? { ...c, patientId: req.patientId, clinicianId: req.clinicianId, clinicId: req.clinicId, scheduledAt: req.scheduledAt, status: req.status }
+      ? { ...c, status: req.status }
       : c,
   )
   return { ...consultations.find((c) => c.consultationId === id)! }
@@ -313,7 +341,7 @@ export const mockApi = {
     list: listConsultations,
     get: getConsultation,
     create: createConsultation,
-    update: updateConsultation,
+    updateStatus: updateConsultationStatus,
     updateTranscript,
     remove: deleteConsultation,
   },

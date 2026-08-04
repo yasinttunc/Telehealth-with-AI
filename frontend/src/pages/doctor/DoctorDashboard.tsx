@@ -27,7 +27,7 @@ export function DoctorDashboard() {
     if (!user) return
     let active = true
     Promise.all([
-      api.consultations.list({ clinicianId: user.userId }),
+      api.consultations.mine(),
       api.patients.list(),
       api.clinics.list(),
       api.alerts.list(),

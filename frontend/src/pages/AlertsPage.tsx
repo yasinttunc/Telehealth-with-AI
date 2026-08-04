@@ -9,19 +9,34 @@ import { api } from '../api'
 import { DataTable, type Column } from '../components/DataTable'
 import { EmptyState } from '../components/EmptyState'
 import { StatusBadge } from '../components/StatusBadge'
-import { selectClass } from '../components/formStyles'
 import { PageHeader, LoadingRow, ErrorRow } from '../components/ui'
+import { SuccessMessage } from '../components/SuccessMessage'
 import { formatDateTime } from '../lib/format'
 import { clinicName } from '../lib/lookups'
 import type { Alert, AlertStatus, Clinic } from '../types/domain'
 
-const STATUSES: AlertStatus[] = ['OPEN', 'ACKNOWLEDGED', 'DISMISSED', 'RESOLVED']
+function nextStatuses(status: AlertStatus): AlertStatus[] {
+  switch (status) {
+    case 'OPEN':
+      return ['ACKNOWLEDGED', 'DISMISSED']
+    case 'ACKNOWLEDGED':
+      return ['RESOLVED', 'DISMISSED']
+    case 'RESOLVED':
+    case 'DISMISSED':
+      return []
+  }
+}
+
+function actionLabel(status: AlertStatus) {
+  return status === 'ACKNOWLEDGED' ? 'Acknowledge' : status === 'DISMISSED' ? 'Dismiss' : 'Resolve'
+}
 
 export function AlertsPage() {
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [clinics, setClinics] = useState<Clinic[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
   const [updatingId, setUpdatingId] = useState<number | null>(null)
 
   async function load() {
@@ -44,11 +59,14 @@ export function AlertsPage() {
 
   async function changeStatus(alert: Alert, status: AlertStatus) {
     setUpdatingId(alert.alertId)
+    setError(null)
     try {
       const updated = await api.alerts.updateStatus(alert.alertId, { status })
       setAlerts((prev) => prev.map((a) => (a.alertId === updated.alertId ? updated : a)))
+      setSuccess(`Alert status updated to ${status.toLowerCase()}.`)
     } catch {
-      setError('Could not update alert status.')
+      await load()
+      setError('Could not update alert status. Refresh the list and try again.')
     } finally {
       setUpdatingId(null)
     }
@@ -61,28 +79,34 @@ export function AlertsPage() {
     { header: 'Status', cell: (a) => <StatusBadge status={a.status} /> },
     { header: 'Raised', cell: (a) => formatDateTime(a.createdAt) },
     {
-      header: 'Set status',
-      cell: (a) => (
-        <select
-          aria-label={`Update status for ${a.symptomName} alert`}
-          className={`${selectClass} h-9 max-w-[11rem]`}
-          value={a.status}
-          disabled={updatingId === a.alertId}
-          onChange={(e) => changeStatus(a, e.target.value as AlertStatus)}
-        >
-          {STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-      ),
+      header: 'Actions',
+      cell: (a) => {
+        const actions = nextStatuses(a.status)
+        if (actions.length === 0) return <span className="text-sm text-slate-400">Final state</span>
+
+        return (
+          <div className="flex flex-wrap gap-2">
+            {actions.map((status) => (
+              <button
+                key={status}
+                type="button"
+                disabled={updatingId === a.alertId}
+                onClick={() => void changeStatus(a, status)}
+                className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:border-accent-500 disabled:opacity-60"
+              >
+                {actionLabel(status)}
+              </button>
+            ))}
+          </div>
+        )
+      },
     },
   ]
 
   return (
     <div>
       <PageHeader title="Alerts" description="Symptom surveillance signals for review" />
+      {success && <SuccessMessage message={success} />}
       {error && <div className="mb-3"><ErrorRow message={error} /></div>}
       {loading ? (
         <LoadingRow />

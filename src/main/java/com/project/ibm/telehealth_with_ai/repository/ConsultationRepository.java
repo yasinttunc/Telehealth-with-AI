@@ -6,8 +6,10 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 
 public interface ConsultationRepository extends JpaRepository<Consultation, Long> {
-    List<Consultation> findByPatientIdOrderByScheduledDateDesc(Long patientId);
-    List<Consultation> findByClinicianUserIdOrderByScheduledDateDesc(Long clinicianUserId);
-    List<Consultation> findAllByOrderByScheduledDateDesc();
 
+    List<Consultation> findByPatientPatientIdOrderByScheduledAtDesc(Long patientId);
+
+    List<Consultation> findByClinicianUserIdOrderByScheduledAtDesc(Long clinicianUserId);
+
+    List<Consultation> findAllByOrderByScheduledAtDesc();
 }

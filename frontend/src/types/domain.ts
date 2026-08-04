@@ -2,7 +2,7 @@
  * Domain types for the Telehealth With AI frontend.
  *
  * IDs are numeric to match the planned Spring/PostgreSQL schema
- * (BIGSERIAL primary keys) described in docs/current-backend-task-roadmap.md.
+ * (BIGSERIAL primary keys) described in docs/active-project-roadmap.md.
  * AppUser is the login identity; Patient and Doctor are role-specific
  * profiles linked one-to-one via appUserId.
  */
@@ -44,7 +44,7 @@ export interface Doctor {
   firstName: string
   lastName: string
   specialty: string
-  /** Human-readable availability slots for the demo, e.g. "Mon 09:00". */
+  /** ISO-8601 UTC date-times, matching the backend's Instant values. */
   availableTimes: string[]
 }
 
@@ -59,25 +59,31 @@ export interface Patient {
 
 export interface Clinic {
   clinicId: number
-  name: string
-  address: string
+  clinicName: string
+  clinicAddress: string
 }
 
 export interface Consultation {
   consultationId: number
   patientId: number
+  /** Display value returned by ConsultationResponse; use it when roster data is unavailable. */
+  patientName?: string
   /** Clinician is an AppUser with role DOCTOR (schema: consultation.clinician_id). */
   clinicianId: number
+  clinicianUsername?: string
   clinicId: number
+  clinicName?: string
   scheduledAt: string // ISO datetime
   status: ConsultationStatus
+  startedAt?: string | null
+  endedAt?: string | null
   transcript?: string | null
 }
 
 /** One clinician-reviewed symptom extracted from a transcript (mock AI output). */
 export interface SymptomItem {
   name: string
-  severity: 'MILD' | 'MODERATE' | 'SEVERE'
+  assertion: string
   confidence: number // 0..1
 }
 

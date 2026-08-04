@@ -1,6 +1,8 @@
 package com.project.ibm.telehealth_with_ai.controller;
 
-
+import com.project.ibm.telehealth_with_ai.dto.request.UpdateConsultationStatusRequest;
+import com.project.ibm.telehealth_with_ai.dto.request.UpdateTranscriptRequest;
+import org.springframework.web.bind.annotation.PutMapping;
 import com.project.ibm.telehealth_with_ai.dto.request.CreateConsultationRequest;
 import com.project.ibm.telehealth_with_ai.dto.response.ConsultationResponse;
 import com.project.ibm.telehealth_with_ai.service.ConsultationService;
@@ -13,12 +15,18 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 @RestController
-@RequestMapping("/consultations")
+@RequestMapping("/api/consultations")
 public class ConsultationController {
 
     private final ConsultationService consultationService;
     public ConsultationController(ConsultationService consultationService) {
         this.consultationService = consultationService;
+    }
+
+    @GetMapping("/mine")
+    @PreAuthorize("hasAnyRole('DOCTOR', 'PATIENT')")
+    public List<ConsultationResponse> getMine() {
+        return consultationService.getMyConsultations();
     }
 
     @PostMapping
@@ -41,5 +49,24 @@ public class ConsultationController {
     public ConsultationResponse getById(@PathVariable Long id) {
         return consultationService.getConsultationById(id);
     }
+
+    @PutMapping("/{id}/status")
+    @PreAuthorize("hasAnyRole('ADMIN', 'DOCTOR')")
+    public ConsultationResponse updateConsultationStatus(
+            @PathVariable Long id,
+            @Valid @RequestBody UpdateConsultationStatusRequest request
+    ){
+        return consultationService.updateStatus(id,request);
+    }
+
+    @PutMapping("/{id}/transcript")
+    @PreAuthorize("hasAnyRole('ADMIN', 'DOCTOR')")
+    public ConsultationResponse updateTranscript(
+            @PathVariable Long id,
+            @Valid @RequestBody UpdateTranscriptRequest request
+    ){
+        return consultationService.updateTranscript(id,request);
+    }
+
 
 }

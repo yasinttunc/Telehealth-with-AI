@@ -1,66 +1,69 @@
-CREATE TABLE IF NOT EXISTS app_user (
+CREATE TABLE app_user (
     user_id BIGSERIAL PRIMARY KEY,
     username VARCHAR(100) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
     role VARCHAR(30) NOT NULL CHECK (role IN ('DOCTOR', 'ADMIN', 'PATIENT')),
     email VARCHAR(255) NOT NULL UNIQUE,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS patient (
+CREATE TABLE patient (
     patient_id BIGSERIAL PRIMARY KEY,
+    app_user_id BIGINT UNIQUE REFERENCES app_user(user_id),
     nhs_number VARCHAR(10) NOT NULL UNIQUE,
     first_name VARCHAR(100) NOT NULL,
     last_name VARCHAR(100) NOT NULL,
     date_of_birth DATE NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT now()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS doctor (
+CREATE TABLE doctor (
     doctor_id BIGSERIAL PRIMARY KEY,
-    firstName VARCHAR(100) NOT NULL,
-    lastName VARCHAR(100) NOT NULL,
+    app_user_id BIGINT UNIQUE REFERENCES app_user(user_id),
+    first_name VARCHAR(100) NOT NULL,
+    last_name VARCHAR(100) NOT NULL,
     specialty VARCHAR(100) NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT now()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS available_times (
+CREATE TABLE available_times (
     doctor_id BIGINT NOT NULL REFERENCES doctor(doctor_id) ON DELETE CASCADE,
-    available_times TIMESTAMP NOT NULL,
-    PRIMARY KEY (doctor_id, available_times)
+    available_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (doctor_id, available_at)
 );
 
-CREATE TABLE IF NOT EXISTS clinic (
+CREATE TABLE clinic (
     clinic_id BIGSERIAL PRIMARY KEY,
     clinic_name VARCHAR(160) NOT NULL,
-    clinic_address VARCHAR(255) NOT NULL,
-    doctor_id BIGINT REFERENCES doctor(doctor_id),
-    patient_id BIGINT REFERENCES patient(patient_id)
+    clinic_address VARCHAR(255) NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS consultation (
+CREATE TABLE consultation (
     consultation_id BIGSERIAL PRIMARY KEY,
-    patient_id BIGINT NOT NULL REFERENCES patient(patient_id) ON DELETE CASCADE,
-    clinician_id BIGINT NOT NULL REFERENCES app_user(user_id),
-    clinic_id VARCHAR(50),
-    time TIMESTAMP NOT NULL,
+    patient_id BIGINT NOT NULL REFERENCES patient(patient_id) ON DELETE RESTRICT,
+    clinician_id BIGINT NOT NULL REFERENCES app_user(user_id) ON DELETE RESTRICT,
+    clinic_id BIGINT NOT NULL REFERENCES clinic(clinic_id) ON DELETE RESTRICT,
+    scheduled_at TIMESTAMPTZ NOT NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'SCHEDULED'
+        CHECK (status IN ('SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED')),
     started_at TIMESTAMPTZ,
     ended_at TIMESTAMPTZ,
     transcript TEXT
 );
 
-CREATE TABLE IF NOT EXISTS symptom_record (
+CREATE TABLE symptom_record (
     symptom_record_id BIGSERIAL PRIMARY KEY,
-    consultation_id BIGINT REFERENCES consultation(consultation_id) ON DELETE CASCADE,
+    consultation_id BIGINT NOT NULL REFERENCES consultation(consultation_id) ON DELETE CASCADE,
     symptoms JSONB NOT NULL DEFAULT '[]'::jsonb,
     model_name VARCHAR(100) NOT NULL DEFAULT 'seed-data',
     prompt_version VARCHAR(50) NOT NULL DEFAULT 'seed-v1',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS alert (
+CREATE TABLE alert (
     alert_id BIGSERIAL PRIMARY KEY,
-    clinic_id VARCHAR(50) NOT NULL,
+    clinic_id BIGINT NOT NULL REFERENCES clinic(clinic_id) ON DELETE RESTRICT,
     symptom_name VARCHAR(100) NOT NULL,
     window_start TIMESTAMPTZ NOT NULL,
     window_end TIMESTAMPTZ NOT NULL,
@@ -72,9 +75,15 @@ CREATE TABLE IF NOT EXISTS alert (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_consultation_patient_id ON consultation(patient_id);
-CREATE INDEX IF NOT EXISTS idx_consultation_clinician_id ON consultation(clinician_id);
-CREATE INDEX IF NOT EXISTS idx_consultation_clinic_id ON consultation(clinic_id);
-CREATE INDEX IF NOT EXISTS idx_symptom_record_consultation_id ON symptom_record(consultation_id);
-CREATE INDEX IF NOT EXISTS idx_symptom_record_symptoms_gin ON symptom_record USING GIN (symptoms);
-CREATE INDEX IF NOT EXISTS idx_alert_clinic_status ON alert(clinic_id, status);
+CREATE INDEX idx_consultation_patient_scheduled
+    ON consultation(patient_id, scheduled_at DESC);
+CREATE INDEX idx_consultation_clinician_scheduled
+    ON consultation(clinician_id, scheduled_at DESC);
+CREATE INDEX idx_consultation_clinic_status
+    ON consultation(clinic_id, status);
+CREATE INDEX idx_symptom_record_consultation_id
+    ON symptom_record(consultation_id);
+CREATE INDEX idx_symptom_record_symptoms_gin
+    ON symptom_record USING GIN (symptoms);
+CREATE INDEX idx_alert_clinic_status
+    ON alert(clinic_id, status);

@@ -14,10 +14,11 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Video, Sparkles } from 'lucide-react'
-import { api } from '../api'
+import { api, ApiError } from '../api'
 import { useAuth } from '../auth/useAuth'
 import { StatusBadge } from '../components/StatusBadge'
 import { Panel, PrimaryButton, SecondaryButton, LoadingRow, ErrorRow } from '../components/ui'
+import { SuccessMessage } from '../components/SuccessMessage'
 import { selectClass } from '../components/formStyles'
 import { formatDateTime } from '../lib/format'
 import { clinicName, clinicianName, patientName } from '../lib/lookups'
@@ -31,7 +32,12 @@ import type {
   SymptomRecord,
 } from '../types/domain'
 
-const STATUSES: ConsultationStatus[] = ['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']
+const NEXT_STATUSES: Record<ConsultationStatus, ConsultationStatus[]> = {
+  SCHEDULED: ['IN_PROGRESS', 'COMPLETED', 'CANCELLED'],
+  IN_PROGRESS: ['COMPLETED', 'CANCELLED'],
+  COMPLETED: [],
+  CANCELLED: [],
+}
 
 export function ConsultationDetailPage() {
   const { id } = useParams()
@@ -39,6 +45,7 @@ export function ConsultationDetailPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const isStaff = user?.role === 'ADMIN' || user?.role === 'DOCTOR'
+  const base = user ? consultationsBase(user.role) : '/login'
 
   const [consultation, setConsultation] = useState<Consultation | null>(null)
   const [patients, setPatients] = useState<Patient[]>([])
@@ -47,10 +54,12 @@ export function ConsultationDetailPage() {
   const [symptoms, setSymptoms] = useState<SymptomRecord | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
 
   const [transcriptDraft, setTranscriptDraft] = useState('')
   const [savingTranscript, setSavingTranscript] = useState(false)
   const [savingStatus, setSavingStatus] = useState(false)
+  const [extractingSymptoms, setExtractingSymptoms] = useState(false)
 
   async function load() {
     if (!user) return
@@ -58,28 +67,16 @@ export function ConsultationDetailPage() {
     try {
       const [c, pts, docs, clns] = await Promise.all([
         api.consultations.get(consultationId),
-        api.patients.list(),
+        isStaff ? api.patients.list() : Promise.resolve([]),
         api.doctors.list(),
         api.clinics.list(),
       ])
-      // Ownership guard: a patient may only view their own consultation and a
-      // doctor only consultations assigned to them. Mirrors the backend's
-      // privacy-preserving 404 policy (roadmap Phase 4). ADMIN sees all.
-      const ownsIt =
-        user.role === 'ADMIN' ||
-        (user.role === 'PATIENT' && c.patientId === user.patientId) ||
-        (user.role === 'DOCTOR' && c.clinicianId === user.userId)
-      if (!ownsIt) {
-        setConsultation(null)
-        setError('Consultation not found.')
-        return
-      }
       setConsultation(c)
       setPatients(pts)
       setDoctors(docs)
       setClinics(clns)
       setTranscriptDraft(c.transcript ?? '')
-      setSymptoms(c.transcript ? await api.symptoms.getByConsultation(consultationId) : null)
+      setSymptoms(isStaff && c.transcript ? await api.symptoms.getByConsultation(consultationId) : null)
       setError(null)
     } catch {
       setError('Could not load this consultation.')
@@ -95,12 +92,14 @@ export function ConsultationDetailPage() {
 
   async function saveTranscript() {
     setSavingTranscript(true)
+    setError(null)
     try {
       const updated = await api.consultations.updateTranscript(consultationId, transcriptDraft)
       setConsultation(updated)
       setSymptoms(updated.transcript ? await api.symptoms.getByConsultation(consultationId) : null)
-    } catch {
-      setError('Could not save transcript.')
+      setSuccess('Transcript saved.')
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not save transcript.')
     } finally {
       setSavingTranscript(false)
     }
@@ -109,27 +108,47 @@ export function ConsultationDetailPage() {
   async function changeStatus(status: ConsultationStatus) {
     if (!consultation) return
     setSavingStatus(true)
+    setError(null)
     try {
-      const updated = await api.consultations.update(consultationId, {
-        patientId: consultation.patientId,
-        clinicianId: consultation.clinicianId,
-        clinicId: consultation.clinicId,
-        scheduledAt: consultation.scheduledAt,
-        status,
-      })
+      const updated = await api.consultations.updateStatus(consultationId, { status })
       setConsultation(updated)
-    } catch {
-      setError('Could not update status.')
+      setSuccess(`Consultation status updated to ${status.toLowerCase()}.`)
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not update status.')
     } finally {
       setSavingStatus(false)
     }
   }
 
+  async function extractSymptoms() {
+    setExtractingSymptoms(true)
+    setError(null)
+    try {
+      setSymptoms(await api.symptoms.extract(consultationId))
+      setSuccess('Mock symptom extraction created.')
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not extract symptoms from this transcript.')
+    } finally {
+      setExtractingSymptoms(false)
+    }
+  }
+
   if (loading) return <LoadingRow />
-  if (error && !consultation) return <ErrorRow message={error} />
+  if (error && !consultation) {
+    return (
+      <div>
+        <SecondaryButton type="button" onClick={() => navigate(base)}>
+          <ArrowLeft size={16} aria-hidden />
+          Back to consultations
+        </SecondaryButton>
+        <div className="mt-3"><ErrorRow message={error} /></div>
+      </div>
+    )
+  }
   if (!consultation || !user) return <ErrorRow message="Consultation not found." />
 
-  const base = consultationsBase(user.role)
+  const nextStatuses = NEXT_STATUSES[consultation.status]
+  const canEditTranscript = isStaff && ['IN_PROGRESS', 'COMPLETED'].includes(consultation.status)
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -142,6 +161,7 @@ export function ConsultationDetailPage() {
         Back to consultations
       </button>
 
+      {success && <SuccessMessage message={success} />}
       {error && <div className="mb-3"><ErrorRow message={error} /></div>}
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
@@ -154,13 +174,13 @@ export function ConsultationDetailPage() {
       <div className="grid gap-4">
         <Panel title="Details">
           <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-            <Detail label="Patient" value={patientName(patients, consultation.patientId)} />
-            <Detail label="Doctor" value={clinicianName(doctors, consultation.clinicianId)} />
-            <Detail label="Clinic" value={clinicName(clinics, consultation.clinicId)} />
+            <Detail label="Patient" value={consultation.patientName ?? patientName(patients, consultation.patientId)} />
+            <Detail label="Doctor" value={consultation.clinicianUsername ? `Dr ${consultation.clinicianUsername}` : clinicianName(doctors, consultation.clinicianId)} />
+            <Detail label="Clinic" value={consultation.clinicName ?? clinicName(clinics, consultation.clinicId)} />
             <Detail label="Scheduled" value={formatDateTime(consultation.scheduledAt)} />
           </dl>
 
-          {isStaff && (
+          {isStaff && nextStatuses.length > 0 && (
             <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-4">
               <label htmlFor="status" className="text-sm font-medium text-slate-700">
                 Update status
@@ -172,7 +192,8 @@ export function ConsultationDetailPage() {
                 disabled={savingStatus}
                 onChange={(e) => changeStatus(e.target.value as ConsultationStatus)}
               >
-                {STATUSES.map((s) => (
+                <option value={consultation.status}>{consultation.status}</option>
+                {nextStatuses.map((s) => (
                   <option key={s} value={s}>
                     {s}
                   </option>
@@ -183,7 +204,7 @@ export function ConsultationDetailPage() {
         </Panel>
 
         {/* Transcript: staff can edit; patients do not see the transcript editor. */}
-        {isStaff ? (
+        {canEditTranscript ? (
           <Panel title="Transcript">
             <textarea
               className="min-h-32 w-full rounded-md border border-slate-300 p-3 text-sm outline-none focus:border-accent-500"
@@ -220,11 +241,11 @@ export function ConsultationDetailPage() {
             {symptoms ? (
               <>
                 <ul className="divide-y divide-slate-100">
-                  {symptoms.symptoms.map((s) => (
-                    <li key={s.name} className="flex items-center justify-between py-2 text-sm">
+                  {symptoms.symptoms.map((s, index) => (
+                    <li key={`${s.name}-${index}`} className="flex items-center justify-between py-2 text-sm">
                       <span className="text-slate-700">{s.name}</span>
                       <span className="flex items-center gap-3 text-slate-500">
-                        <span>{s.severity.toLowerCase()}</span>
+                        <span>{s.assertion.toLowerCase()}</span>
                         <span className="tabular-nums">{Math.round(s.confidence * 100)}%</span>
                       </span>
                     </li>
@@ -236,9 +257,14 @@ export function ConsultationDetailPage() {
                 </p>
               </>
             ) : (
-              <p className="text-sm text-slate-500">
-                No symptom record for this transcript yet.
-              </p>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-slate-500">No symptom record for this transcript yet.</p>
+                {isStaff && (
+                  <PrimaryButton type="button" onClick={extractSymptoms} disabled={extractingSymptoms}>
+                    {extractingSymptoms ? 'Extracting…' : 'Run mock extraction'}
+                  </PrimaryButton>
+                )}
+              </div>
             )}
           </Panel>
         )}

@@ -1,8 +1,6 @@
 package com.project.ibm.telehealth_with_ai.dto.request;
 
-import jakarta.validation.constraints.Future;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.*;
 import jakarta.validation.Valid;
 
 import java.time.Instant;
@@ -32,6 +30,17 @@ public class UpdateDoctorRequest {
         return firstName;
     }
 
+    @NotBlank(message = "Username is required")
+    @Size(min = 3, max = 50, message = "Username must be between 3 and 50 characters")
+    private String username;
+
+    @NotBlank(message = "Email is required")
+    @Email(message = "Email must be valid")
+    private String email;
+
+    @NotNull(message = "Enabled status is required")
+    private boolean isEnabled;
+
     public void setFirstName(String firstName) {
         this.firstName = firstName;
     }
@@ -59,4 +68,29 @@ public class UpdateDoctorRequest {
     public void setAvailableTimes(List<Instant> availableTimes) {
         this.availableTimes = availableTimes;
     }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public void setUsername(String username) {
+        this.username = username;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    public boolean isEnabled() {
+        return isEnabled;
+    }
+
+    public void setEnabled(boolean enabled) {
+        isEnabled = enabled;
+    }
+
 }

@@ -8,6 +8,9 @@ import com.project.ibm.telehealth_with_ai.exception.DuplicateResourceException;
 import com.project.ibm.telehealth_with_ai.exception.ResourceNotFoundException;
 import com.project.ibm.telehealth_with_ai.model.AppUser;
 import com.project.ibm.telehealth_with_ai.repository.AppUserRepository;
+import com.project.ibm.telehealth_with_ai.repository.DoctorRepository;
+import com.project.ibm.telehealth_with_ai.repository.PatientRepository;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,10 +23,19 @@ import java.util.Locale;
 public class AppUserService {
 
     private final AppUserRepository appUserRepository;
+    private final DoctorRepository doctorRepository;
+    private final PatientRepository patientRepository;
     private final PasswordEncoder passwordEncoder;
 
-    public AppUserService(AppUserRepository appUserRepository, PasswordEncoder passwordEncoder) {
+    public AppUserService(
+            AppUserRepository appUserRepository,
+            DoctorRepository doctorRepository,
+            PatientRepository patientRepository,
+            PasswordEncoder passwordEncoder
+    ) {
         this.appUserRepository = appUserRepository;
+        this.doctorRepository = doctorRepository;
+        this.patientRepository = patientRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -40,6 +52,7 @@ public class AppUserService {
     }
 
     // Creates a new user account from RegisterRequest.
+    @PreAuthorize( "hasRole('ADMIN')")
     public AppUserResponse createUser(RegisterRequest request) {
         if(appUserRepository.findByUsernameIgnoreCase(request.getUsername())!=null){
             throw new DuplicateResourceException("Username already exists");
@@ -49,6 +62,12 @@ public class AppUserService {
         }
 
         AppUser.Role role = parseRole(request.getRole());
+
+        if(role != AppUser.Role.ADMIN){
+            throw new BadRequestException(
+                    "Create doctors from /api/doctors and patients from /api/patients");
+        }
+
         AppUser user = new AppUser();
 
 
@@ -94,14 +113,28 @@ public class AppUserService {
         if (appUserRepository.existsByEmailAndUserIdNot(request.getEmail(), id)) {
             throw new DuplicateResourceException("Email already exists");
         }
-        else {
-            user.setUsername(request.getUsername());
-            user.setEmail(request.getEmail());
-            user.setRole(parseRole(request.getRole()));
-            user.setEnabled(request.getEnabled());
-            AppUser saved = appUserRepository.save(user);
-            return toResponse(saved);
+        AppUser.Role requestedRole = parseRole(request.getRole());
+        boolean hasRoleProfile = doctorRepository.existsByAppUserUserId(id)
+                || patientRepository.existsByAppUserUserId(id);
+
+        if (hasRoleProfile && user.getRole() != requestedRole) {
+            throw new BadRequestException(
+                    "Role cannot be changed while this account is linked to a doctor or patient profile"
+            );
         }
+
+        if (user.getRole() != requestedRole && requestedRole != AppUser.Role.ADMIN) {
+            throw new BadRequestException(
+                    "Create doctors from /api/doctors and patients from /api/patients"
+            );
+        }
+
+        user.setUsername(request.getUsername());
+        user.setEmail(request.getEmail());
+        user.setRole(requestedRole);
+        user.setEnabled(request.getEnabled());
+        AppUser saved = appUserRepository.save(user);
+        return toResponse(saved);
     }
 
     public AppUserResponse updatePassword(Long id, String newPassword) {
@@ -111,16 +144,16 @@ public class AppUserService {
         AppUser saved = appUserRepository.save(user);
         return toResponse(saved);
     }
-    // Deletes user by ID.
+    // Archives the login account while preserving clinical history and profile links.
     public void deleteUser(Long id) {
 
         // Checks user exists first for a clearer error.
         if (!appUserRepository.existsById(id)) {
             throw new ResourceNotFoundException("User not found");
         }
-
-        // Deletes user from database.
-        appUserRepository.deleteById(id);
+        AppUser user = appUserRepository.findById(id).orElseThrow(() -> new ResourceNotFoundException("User not found"));
+        user.setEnabled(false);
+        appUserRepository.save(user);
     }
 
     // Temporary compatibility method if old code needs it.

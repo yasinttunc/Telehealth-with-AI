@@ -1,5 +1,6 @@
 package com.project.ibm.telehealth_with_ai.security;
 
+import com.project.ibm.telehealth_with_ai.exception.BadRequestException;
 import com.project.ibm.telehealth_with_ai.model.AppUser;
 import com.project.ibm.telehealth_with_ai.repository.AppUserRepository;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -22,8 +23,8 @@ public class DatabaseUserDetailsService implements UserDetailsService {
 
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
-        AppUser appUser = appUserRepository.findByEmailOrUsernameIgnoreCase(username, username);
-
+        AppUser appUser = appUserRepository.findByEmailOrUsernameIgnoreCase(username, username)
+                .orElseThrow(() -> new BadRequestException("Invalid username or email: " + username.replaceAll("@.*", "")));
         if (appUser == null) {
             throw new UsernameNotFoundException("User not found: " + username);
         }

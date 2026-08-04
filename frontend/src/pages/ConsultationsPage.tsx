@@ -10,7 +10,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Eye, Plus } from 'lucide-react'
-import { api } from '../api'
+import { api, ApiError } from '../api'
 import { useAuth } from '../auth/useAuth'
 import { DataTable, type Column } from '../components/DataTable'
 import { Drawer } from '../components/Drawer'
@@ -18,27 +18,24 @@ import { EmptyState } from '../components/EmptyState'
 import { FormField } from '../components/FormField'
 import { inputClass, selectClass } from '../components/formStyles'
 import { StatusBadge } from '../components/StatusBadge'
+import { SuccessMessage } from '../components/SuccessMessage'
 import { PageHeader, PrimaryButton, IconButton, LoadingRow, ErrorRow } from '../components/ui'
-import { formatDateTime, fromInputDateTime } from '../lib/format'
+import { formatDateTime, fromInputDateTime, toInputDateTime } from '../lib/format'
 import { clinicName, clinicianName, patientName } from '../lib/lookups'
 import { consultationsBase } from '../lib/paths'
 import type {
   Clinic,
   Consultation,
-  ConsultationStatus,
   Doctor,
   Patient,
 } from '../types/domain'
 import type { CreateConsultationRequest } from '../api/types'
-
-const STATUSES: ConsultationStatus[] = ['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']
 
 interface ConsultForm {
   patientId: string
   clinicianId: string
   clinicId: string
   scheduledAt: string
-  status: ConsultationStatus
 }
 
 export function ConsultationsPage() {
@@ -53,6 +50,7 @@ export function ConsultationsPage() {
   const [clinics, setClinics] = useState<Clinic[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
 
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [form, setForm] = useState<ConsultForm | null>(null)
@@ -63,15 +61,9 @@ export function ConsultationsPage() {
     if (!user) return
     setLoading(true)
     try {
-      const query =
-        user.role === 'PATIENT'
-          ? { patientId: user.patientId }
-          : user.role === 'DOCTOR'
-            ? { clinicianId: user.userId }
-            : {}
       const [cons, pts, docs, clns] = await Promise.all([
-        api.consultations.list(query),
-        api.patients.list(),
+        user.role === 'ADMIN' ? api.consultations.list() : api.consultations.mine(),
+        user.role === 'PATIENT' ? Promise.resolve([]) : api.patients.list(),
         api.doctors.list(),
         api.clinics.list(),
       ])
@@ -97,22 +89,33 @@ export function ConsultationsPage() {
     () => doctors.filter((d) => d.appUserId != null),
     [doctors],
   )
+  const selectedDoctor = clinicianOptions.find(
+    (doctor) => String(doctor.appUserId) === form?.clinicianId,
+  )
+  const suggestedSlots = (selectedDoctor?.availableTimes ?? [])
+    .map((value) => new Date(value))
+    .filter((date) => !Number.isNaN(date.getTime()) && date.getTime() > Date.now())
+    .sort((left, right) => left.getTime() - right.getTime())
+    .slice(0, 5)
+
+  function chooseSuggestedSlot(date: Date) {
+    if (!form) return
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+      .toISOString()
+      .slice(0, 16)
+    setForm({ ...form, scheduledAt: local })
+  }
 
   function openCreate() {
     setForm({
-      patientId: patients[0] ? String(patients[0].patientId) : '',
-      // Doctor creating their own appointment defaults to themselves.
-      clinicianId:
-        user?.role === 'DOCTOR'
-          ? String(user.userId)
-          : clinicianOptions[0]
-            ? String(clinicianOptions[0].appUserId)
-            : '',
-      clinicId: clinics[0] ? String(clinics[0].clinicId) : '',
+      patientId: '',
+      clinicianId: user?.role === 'DOCTOR' ? String(user.userId) : '',
+      clinicId: '',
       scheduledAt: '',
-      status: 'SCHEDULED',
     })
     setFieldErrors({})
+    setError(null)
+    setSuccess(null)
     setDrawerOpen(true)
   }
 
@@ -122,6 +125,9 @@ export function ConsultationsPage() {
     if (!f.clinicianId) errs.clinicianId = 'Select a clinician'
     if (!f.clinicId) errs.clinicId = 'Select a clinic'
     if (!f.scheduledAt) errs.scheduledAt = 'Choose a date and time'
+    else if (Number.isNaN(new Date(f.scheduledAt).getTime()) || new Date(f.scheduledAt).getTime() <= Date.now()) {
+      errs.scheduledAt = 'Choose a time in the future'
+    }
     return errs
   }
 
@@ -137,30 +143,63 @@ export function ConsultationsPage() {
       clinicianId: Number(form.clinicianId),
       clinicId: Number(form.clinicId),
       scheduledAt: fromInputDateTime(form.scheduledAt),
-      status: form.status,
     }
     setSaving(true)
+    setError(null)
     try {
-      await api.consultations.create(payload)
+      const created = await api.consultations.create(payload)
+      setConsultations((previous) => [created, ...previous])
       setDrawerOpen(false)
-      await load()
-    } catch {
-      setError('Could not create consultation.')
+      setSuccess('Consultation scheduled.')
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.fieldErrors) setFieldErrors(caught.fieldErrors)
+      else setError(caught instanceof ApiError ? caught.message : 'Could not create consultation.')
     } finally {
       setSaving(false)
     }
   }
 
+  function clinicianLabel(consultation: Consultation) {
+    const doctor = doctors.find((item) => item.appUserId === consultation.clinicianId)
+    return doctor
+      ? `Dr ${doctor.firstName} ${doctor.lastName}`
+      : consultation.clinicianUsername
+        ? `Dr ${consultation.clinicianUsername}`
+        : clinicianName(doctors, consultation.clinicianId)
+  }
+
   const columns: Column<Consultation>[] = [
-    { header: 'Patient', cell: (c) => patientName(patients, c.patientId) },
-    { header: 'Clinician', cell: (c) => clinicianName(doctors, c.clinicianId) },
-    { header: 'Clinic', cell: (c) => <span className="text-slate-500">{clinicName(clinics, c.clinicId)}</span> },
+    { header: 'Patient', cell: (c) => c.patientName ?? patientName(patients, c.patientId) },
+    { header: 'Clinician', cell: clinicianLabel },
+    { header: 'Clinic', cell: (c) => <span className="text-slate-500">{c.clinicName ?? clinicName(clinics, c.clinicId)}</span> },
     { header: 'Scheduled', cell: (c) => formatDateTime(c.scheduledAt) },
     { header: 'Status', cell: (c) => <StatusBadge status={c.status} /> },
   ]
 
   // Patients see their clinician first (their own name is redundant).
   const patientColumns = columns.filter((c) => c.header !== 'Patient')
+  const upcoming = consultations.filter((consultation) =>
+    consultation.status === 'IN_PROGRESS' ||
+    (consultation.status === 'SCHEDULED' && new Date(consultation.scheduledAt).getTime() >= Date.now()),
+  )
+  const history = consultations.filter((consultation) => !upcoming.includes(consultation))
+
+  function renderTable(rows: Consultation[], emptyTitle: string, emptyMessage: string) {
+    return rows.length === 0 ? (
+      <EmptyState title={emptyTitle} message={emptyMessage} />
+    ) : (
+      <DataTable
+        columns={user?.role === 'PATIENT' ? patientColumns : columns}
+        rows={rows}
+        rowKey={(consultation) => consultation.consultationId}
+        actions={(consultation) => (
+          <IconButton label="Open consultation" onClick={() => navigate(`${base}/${consultation.consultationId}`)}>
+            <Eye size={16} />
+          </IconButton>
+        )}
+      />
+    )
+  }
 
   return (
     <div>
@@ -177,34 +216,22 @@ export function ConsultationsPage() {
         }
       />
 
+      {success && <SuccessMessage message={success} />}
       {error && <div className="mb-3"><ErrorRow message={error} /></div>}
 
       {loading ? (
         <LoadingRow />
-      ) : consultations.length === 0 ? (
-        <EmptyState
-          title="No consultations"
-          message={canManage ? 'Create the first consultation.' : 'You have no consultations yet.'}
-          action={
-            canManage ? (
-              <PrimaryButton type="button" onClick={openCreate} className="mx-auto">
-                <Plus size={16} aria-hidden />
-                New consultation
-              </PrimaryButton>
-            ) : undefined
-          }
-        />
       ) : (
-        <DataTable
-          columns={user?.role === 'PATIENT' ? patientColumns : columns}
-          rows={consultations}
-          rowKey={(c) => c.consultationId}
-          actions={(c) => (
-            <IconButton label="Open consultation" onClick={() => navigate(`${base}/${c.consultationId}`)}>
-              <Eye size={16} />
-            </IconButton>
-          )}
-        />
+        <div className="space-y-8">
+          <section>
+            <h3 className="mb-3 text-base font-semibold text-slate-800">Upcoming</h3>
+            {renderTable(upcoming, 'No upcoming consultations', canManage ? 'Schedule a future consultation to get started.' : 'You have no upcoming consultations.')}
+          </section>
+          <section>
+            <h3 className="mb-3 text-base font-semibold text-slate-800">History</h3>
+            {renderTable(history, 'No consultation history', 'Completed, cancelled, and past scheduled consultations appear here.')}
+          </section>
+        </div>
       )}
 
       {form && (
@@ -253,7 +280,7 @@ export function ConsultationsPage() {
                 <option value="">Select…</option>
                 {clinics.map((c) => (
                   <option key={c.clinicId} value={c.clinicId}>
-                    {c.name}
+                    {c.clinicName}
                   </option>
                 ))}
               </select>
@@ -265,24 +292,34 @@ export function ConsultationsPage() {
                 type="datetime-local"
                 className={inputClass}
                 value={form.scheduledAt}
+                min={toInputDateTime(new Date().toISOString())}
                 onChange={(e) => setForm({ ...form, scheduledAt: e.target.value })}
               />
             </FormField>
 
-            <FormField id="c-status" label="Status">
-              <select
-                id="c-status"
-                className={selectClass}
-                value={form.status}
-                onChange={(e) => setForm({ ...form, status: e.target.value as ConsultationStatus })}
-              >
-                {STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </FormField>
+            {selectedDoctor && (
+              <div className="mb-4">
+                <p className="mb-2 text-sm text-slate-600">
+                  Suggested availability for Dr {selectedDoctor.firstName} {selectedDoctor.lastName}
+                </p>
+                {suggestedSlots.length === 0 ? (
+                  <p className="text-xs text-slate-400">No future suggested slots are available.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {suggestedSlots.map((slot) => (
+                      <button
+                        key={slot.toISOString()}
+                        type="button"
+                        onClick={() => chooseSuggestedSlot(slot)}
+                        className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:border-accent-500"
+                      >
+                        {formatDateTime(slot.toISOString())}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="mt-2 flex justify-end gap-2">
               <button

@@ -1,7 +1,7 @@
 /*
  * LoginPage — compact centered form, no hero artwork (spec §5.1).
  *
- * Uses the mock demo accounts. Invalid credentials show one generic message.
+ * Uses the local development demo accounts. Invalid credentials show one generic message.
  * On success the user is redirected to their role dashboard.
  */
 
@@ -9,6 +9,7 @@ import { useState, type FormEvent } from 'react'
 import { useNavigate, Navigate } from 'react-router-dom'
 import { Stethoscope } from 'lucide-react'
 import { useAuth, homePathForRole } from '../auth/useAuth'
+import { SESSION_EXPIRED_KEY } from '../auth/authStorage'
 
 const DEMO_HINTS = [
   { label: 'Admin', username: 'admin', password: 'admin' },
@@ -23,6 +24,9 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [sessionExpired, setSessionExpired] = useState(
+    () => sessionStorage.getItem(SESSION_EXPIRED_KEY) === 'true',
+  )
 
   // Already logged in? Skip the form.
   if (user) return <Navigate to={homePathForRole(user.role)} replace />
@@ -33,6 +37,8 @@ export function LoginPage() {
     setSubmitting(true)
     try {
       const authUser = await login(username, password)
+      sessionStorage.removeItem(SESSION_EXPIRED_KEY)
+      setSessionExpired(false)
       navigate(homePathForRole(authUser.role), { replace: true })
     } catch {
       // Single generic message regardless of which field is wrong (spec §5.1).
@@ -59,6 +65,12 @@ export function LoginPage() {
         <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
           <h1 className="mb-1 text-xl font-semibold text-slate-800">Sign in</h1>
           <p className="mb-5 text-sm text-slate-500">Use a demo account to continue.</p>
+
+          {sessionExpired && (
+            <p role="status" className="mb-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              Your session has expired. Please sign in again.
+            </p>
+          )}
 
           <form onSubmit={handleSubmit} noValidate>
             <div className="mb-4">
@@ -124,7 +136,7 @@ export function LoginPage() {
             ))}
           </div>
           <p className="mt-3 text-xs text-slate-400">
-            Mock login only — real JWT authentication is planned backend work.
+            Uses the local Spring JWT backend.
           </p>
         </div>
       </div>

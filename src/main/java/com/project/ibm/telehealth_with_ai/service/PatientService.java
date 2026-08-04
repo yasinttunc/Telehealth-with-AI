@@ -10,6 +10,7 @@ import com.project.ibm.telehealth_with_ai.model.AppUser;
 import com.project.ibm.telehealth_with_ai.model.Patient;
 import com.project.ibm.telehealth_with_ai.repository.AppUserRepository;
 import com.project.ibm.telehealth_with_ai.repository.PatientRepository;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,9 +22,16 @@ public class PatientService {
 
     private final PatientRepository patientRepository;
     private final AppUserRepository appUserRepository;
-    public PatientService(PatientRepository patientRepository,AppUserRepository appUserRepository) {
+    private final PasswordEncoder passwordEncoder;
+
+    public PatientService(
+            PatientRepository patientRepository,
+            AppUserRepository appUserRepository,
+            PasswordEncoder passwordEncoder
+    ) {
         this.patientRepository = patientRepository;
         this.appUserRepository = appUserRepository;
+        this.passwordEncoder = passwordEncoder;
     }
 
     public PatientResponse createPatient(CreatePatientRequest request) {
@@ -31,22 +39,29 @@ public class PatientService {
             throw new DuplicateResourceException("NHS number already exists");
         }
 
+        String username = request.getUsername().trim();
+        String email = request.getEmail().trim().toLowerCase();
+
+        if (appUserRepository.findByUsernameIgnoreCase(username) != null) {
+            throw new DuplicateResourceException("Username already exists");
+        }
+        if (appUserRepository.findByEmail(email) != null) {
+            throw new DuplicateResourceException("Email already exists");
+        }
+
+        AppUser account = new AppUser();
+        account.setUsername(username);
+        account.setEmail(email);
+        account.setPassword(passwordEncoder.encode(request.getPassword()));
+        account.setRole(AppUser.Role.PATIENT);
+        account.setEnabled(true);
+        AppUser savedAccount = appUserRepository.save(account);
+
         Patient patient = new Patient();
-        AppUser appUser = appUserRepository.findById(request.getAppUserId())
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-
-        if (appUser.getRole() != AppUser.Role.PATIENT) {
-            throw new BadRequestException("Selected user must have the PATIENT role");
-        }
-
-        if (patientRepository.existsByAppUserUserId(appUser.getUserId())) {
-            throw new DuplicateResourceException("This user already has a patient profile");
-        }
-
-        patient.setAppUser(appUser);
-        patient.setNhsNumber(request.getNhsNumber());
-        patient.setFirstName(request.getFirstName());
-        patient.setLastName(request.getLastName());
+        patient.setAppUser(savedAccount);
+        patient.setNhsNumber(request.getNhsNumber().trim());
+        patient.setFirstName(request.getFirstName().trim());
+        patient.setLastName(request.getLastName().trim());
         patient.setDateOfBirth(request.getDateOfBirth());
 
         Patient saved = patientRepository.save(patient);
@@ -56,7 +71,7 @@ public class PatientService {
 
     @Transactional(readOnly = true)
     public List<PatientResponse> getAllPatients() {
-        return patientRepository.findAll()
+        return patientRepository.findByAppUserIsNullOrAppUserEnabledTrue()
                 .stream()
                 .map(this::toResponse)
                 .toList();
@@ -85,8 +100,27 @@ public class PatientService {
         Patient patient = patientRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Patient not found"));
 
-        patient.setFirstName(request.getFirstName());
-        patient.setLastName(request.getLastName());
+        AppUser account = patient.getAppUser();
+        if (account == null) {
+            throw new BadRequestException("Patient account not found");
+        }
+
+        String username = request.getUsername().trim();
+        String email = request.getEmail().trim().toLowerCase();
+        if (appUserRepository.existsByUsernameIgnoreCaseAndUserIdNot(username, account.getUserId())) {
+            throw new DuplicateResourceException("Username already exists");
+        }
+        if (appUserRepository.existsByEmailAndUserIdNot(email, account.getUserId())) {
+            throw new DuplicateResourceException("Email already exists");
+        }
+
+        account.setUsername(username);
+        account.setEmail(email);
+        account.setEnabled(request.getEnabled());
+        appUserRepository.save(account);
+
+        patient.setFirstName(request.getFirstName().trim());
+        patient.setLastName(request.getLastName().trim());
         patient.setDateOfBirth(request.getDateOfBirth());
 
         Patient saved = patientRepository.save(patient);
@@ -95,11 +129,14 @@ public class PatientService {
     }
 
     public void deletePatient(Long id) {
-        if (!patientRepository.existsById(id)) {
-            throw new ResourceNotFoundException("Patient not found");
+        Patient patient = patientRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Patient not found"));
+        AppUser account = patient.getAppUser();
+        if (account == null) {
+            throw new BadRequestException("Patient account not found");
         }
-
-        patientRepository.deleteById(id);
+        account.setEnabled(false);
+        appUserRepository.save(account);
     }
 
     @Transactional(readOnly = true)

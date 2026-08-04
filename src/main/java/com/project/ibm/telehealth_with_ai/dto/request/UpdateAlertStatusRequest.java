@@ -1,20 +1,19 @@
 package com.project.ibm.telehealth_with_ai.dto.request;
 
-import jakarta.validation.constraints.NotBlank;
+import com.project.ibm.telehealth_with_ai.model.AlertStatus;
+import jakarta.validation.constraints.NotNull;
 
-/**
- * Carries an admin decision for changing the lifecycle status of an outbreak alert.
- */
+/** Request body used by staff to move one alert through its workflow. */
 public class UpdateAlertStatusRequest {
 
-    @NotBlank(message = "Alert status is required")
-    private String status;
+    @NotNull(message = "Alert status is required")
+    private AlertStatus status;
 
-    public String getStatus() {
+    public AlertStatus getStatus() {
         return status;
     }
 
-    public void setStatus(String status) {
+    public void setStatus(AlertStatus status) {
         this.status = status;
     }
 }
